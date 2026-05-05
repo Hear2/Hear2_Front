@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Hear2",
+    "slug": "hear2-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./src/assets/icons/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#FFF5F8"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FFF5F8"
+      },
+      "package": "com.hear2.app"
+    },
+    "ios": {
+      "bundleIdentifier": "com.hear2.app"
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font"
+    ]
+  }
+}
