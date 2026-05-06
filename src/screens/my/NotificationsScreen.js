@@ -10,23 +10,27 @@ import colors from '../../constants/colors';
 import Header from '../../components/common/Header';
 
 const PALETTE = {
-  love:    { tint: colors.pinkTint,   color: colors.pink,     category: 'love'   },
-  memory:  { tint: colors.pinkTint,   color: colors.pink,     category: 'system' },
-  level:   { tint: '#FFE4EE',         color: colors.pink,     category: 'system' },
-  qa:      { tint: colors.yellowTint, color: '#C8A82E',       category: 'ai'     },
-  judge:   { tint: colors.yellowTint, color: '#C8A82E',       category: 'ai'     },
-  capsule: { tint: colors.greenTint,  color: colors.green,    category: 'system' },
-  report:  { tint: colors.blueTint,   color: colors.blue,     category: 'ai'     },
+  love:     { tint: colors.pinkTint,   color: colors.pink,     category: 'love'     },
+  memory:   { tint: colors.pinkTint,   color: colors.pink,     category: 'system'   },
+  level:    { tint: '#FFE4EE',         color: colors.pink,     category: 'system'   },
+  qa:       { tint: colors.yellowTint, color: '#C8A82E',       category: 'ai'       },
+  judge:    { tint: colors.yellowTint, color: '#C8A82E',       category: 'ai'       },
+  capsule:  { tint: colors.greenTint,  color: colors.green,    category: 'system'   },
+  report:   { tint: colors.blueTint,   color: colors.blue,     category: 'ai'       },
+  schedule: { tint: colors.blueTint,   color: colors.blue,     category: 'schedule' },
 };
 
 const NOTIFICATIONS = [
-  { kind: 'love',    icon: '💗', from: '지호',  text: '"사랑해" 메시지를 보냈어요',           time: '방금',     unread: true  },
-  { kind: 'qa',      icon: '💬', from: 'Hear2', text: '오늘의 데일리 Q&A가 도착했어요',         time: '5분 전',   unread: true  },
-  { kind: 'memory',  icon: '🌸', from: 'Hear2', text: '1년 전 오늘의 추억이 있어요',           time: '오전 9:00', unread: true  },
-  { kind: 'judge',   icon: '⚖️', from: 'Hear2', text: '갈등 분석 결과가 준비됐어요',           time: '어제',     unread: false },
-  { kind: 'capsule', icon: '💌', from: 'Hear2', text: '1주년 캡슐이 내일 열려요',              time: '어제',     unread: false },
-  { kind: 'level',   icon: '🐣', from: '해피',  text: 'Lv.12 → Lv.13 진화 임박!',              time: '2일 전',   unread: false },
-  { kind: 'report',  icon: '📊', from: 'Hear2', text: '이번 주 AI 관계 리포트가 준비됐어요',     time: '3일 전',   unread: false },
+  { kind: 'love',     icon: '💗', from: '지호',  text: '"사랑해" 메시지를 보냈어요',                time: '방금',      unread: true  },
+  { kind: 'schedule', icon: '📅', from: 'Hear2', text: '오늘 12시 "서울숲 데이트" 일정이 있어요',     time: '오전 8:00', unread: true  },
+  { kind: 'qa',       icon: '💬', from: 'Hear2', text: '오늘의 데일리 Q&A가 도착했어요',             time: '5분 전',    unread: true  },
+  { kind: 'memory',   icon: '🌸', from: 'Hear2', text: '1년 전 오늘의 추억이 있어요',               time: '오전 9:00', unread: true  },
+  { kind: 'schedule', icon: '🎂', from: 'Hear2', text: '내일 "엄마 생일" 일정이 있어요',             time: '어제',      unread: false },
+  { kind: 'judge',    icon: '⚖️', from: 'Hear2', text: '갈등 분석 결과가 준비됐어요',               time: '어제',      unread: false },
+  { kind: 'capsule',  icon: '💌', from: 'Hear2', text: '1주년 캡슐이 내일 열려요',                  time: '어제',      unread: false },
+  { kind: 'schedule', icon: '💍', from: 'Hear2', text: '4월 20일 "결혼식 참석" D-13',               time: '2일 전',    unread: false },
+  { kind: 'level',    icon: '🐣', from: '해피',  text: 'Lv.12 → Lv.13 진화 임박!',                  time: '2일 전',    unread: false },
+  { kind: 'report',   icon: '📊', from: 'Hear2', text: '이번 주 AI 관계 리포트가 준비됐어요',         time: '3일 전',    unread: false },
 ];
 
 const NotificationsScreen = ({ navigation }) => {
@@ -44,10 +48,11 @@ const NotificationsScreen = ({ navigation }) => {
   const unreadCount = items.filter((n) => n.unread).length;
 
   const filters = [
-    { id: 'unread', label: `새 알림 ${unreadCount}` },
-    { id: 'love',   label: '💗 애정' },
-    { id: 'ai',     label: 'AI' },
-    { id: 'system', label: '시스템' },
+    { id: 'unread',   label: `새 알림 ${unreadCount}` },
+    { id: 'love',     label: '💗 애정' },
+    { id: 'schedule', label: '📅 일정' },
+    { id: 'ai',       label: 'AI' },
+    { id: 'system',   label: '시스템' },
   ];
 
   const filtered = items.filter((n) => {
@@ -76,22 +81,31 @@ const NotificationsScreen = ({ navigation }) => {
         }
       />
 
-      <View style={styles.filterRow}>
-        {filters.map((f) => {
-          const active = activeFilter === f.id;
-          return (
-            <TouchableOpacity
-              key={f.id}
-              style={[styles.filterChip, active && styles.filterChipActive]}
-              onPress={() => setActiveFilter(f.id)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.filterText, active && styles.filterTextActive]}>
-                {f.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+      <View style={styles.filterWrap}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+          nestedScrollEnabled
+          overScrollMode="always"
+          directionalLockEnabled
+        >
+          {filters.map((f) => {
+            const active = activeFilter === f.id;
+            return (
+              <TouchableOpacity
+                key={f.id}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setActiveFilter(f.id)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.filterText, active && styles.filterTextActive]}>
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
@@ -162,17 +176,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.pink,
   },
+  filterWrap: {
+    height: 48,
+  },
   filterRow: {
-    flexDirection: 'row',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    gap: 6,
+    alignItems: 'center',
   },
   filterChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
     backgroundColor: colors.bgSoft,
+    marginRight: 6,
   },
   filterChipActive: {
     backgroundColor: colors.pinkTint,

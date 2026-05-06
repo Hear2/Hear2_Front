@@ -49,10 +49,15 @@ const MoreScreen = ({ navigation }) => {
     <View style={styles.container}>
       <LovelyBackground intensity={0.3} />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* Title */}
-        <Text style={styles.screenTitle}>더보기</Text>
+      {/* App Header (identical to HomeScreen) */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <Heart size={24} color={colors.pink} pulse />
+          <Text style={styles.logoText}>Hear2</Text>
+        </View>
+      </View>
 
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Profile Hero Card */}
         <LinearGradient
           colors={[colors.pink, colors.peach]}
@@ -150,13 +155,24 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 24,
   },
-  screenTitle: {
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 56,
+    paddingBottom: 12,
+    backgroundColor: colors.bgApp,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  logoText: {
     fontSize: 22,
     fontWeight: '800',
-    color: colors.ink,
-    paddingTop: 56,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    color: colors.pink,
   },
   // Profile Card
   profileCard: {

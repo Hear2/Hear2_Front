@@ -9,6 +9,7 @@ import {
   TextInput,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Defs, RadialGradient, Stop, Circle } from 'react-native-svg';
 import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
 import Header from '../../components/common/Header';
@@ -65,7 +66,18 @@ const DailyQAScreen = ({ navigation }) => {
 
         {/* Question Card */}
         <View style={styles.questionCard}>
-          <Animated.View style={[styles.auroraGlow, { opacity: glowAnim }]} />
+          <Animated.View style={[styles.auroraGlow, { opacity: glowAnim }]} pointerEvents="none">
+            <Svg width="100%" height="100%" viewBox="0 0 200 200">
+              <Defs>
+                <RadialGradient id="qaGlow" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+                  <Stop offset="0%" stopColor={colors.pinkSoft} stopOpacity="0.95" />
+                  <Stop offset="55%" stopColor={colors.pinkSoft} stopOpacity="0.5" />
+                  <Stop offset="100%" stopColor={colors.pinkSoft} stopOpacity="0" />
+                </RadialGradient>
+              </Defs>
+              <Circle cx="100" cy="100" r="100" fill="url(#qaGlow)" />
+            </Svg>
+          </Animated.View>
           <View style={styles.questionHeader}>
             <View style={styles.progressBarBg}>
               <View style={[styles.progressBarFill, { width: '85%' }]} />
@@ -128,7 +140,16 @@ const DailyQAScreen = ({ navigation }) => {
         </TouchableOpacity>
 
         {/* Recent QA History */}
-        <Text style={styles.sectionTitle}>최근 Q&A</Text>
+        <View style={styles.recentHeader}>
+          <Text style={styles.sectionTitle}>최근 Q&A</Text>
+          <TouchableOpacity
+            onPress={() => navigation?.navigate('QuestionHistoryScreen')}
+            hitSlop={8}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.seeAll}>더보기 ›</Text>
+          </TouchableOpacity>
+        </View>
         {recentHistory.map((item, idx) => (
           <TouchableOpacity key={idx} style={styles.historyItem} activeOpacity={0.7}>
             <View style={styles.historyLeft}>
@@ -191,12 +212,10 @@ const styles = StyleSheet.create({
   },
   auroraGlow: {
     position: 'absolute',
-    top: -40,
-    right: -40,
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: colors.pinkSoft,
+    top: -60,
+    right: -60,
+    width: 220,
+    height: 220,
   },
   questionHeader: {
     flexDirection: 'row',
@@ -293,11 +312,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
+  recentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   sectionTitle: {
     fontSize: 17,
     fontWeight: '700',
     color: colors.ink,
-    marginBottom: 12,
+  },
+  seeAll: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.pink,
   },
   historyItem: {
     flexDirection: 'row',

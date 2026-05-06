@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,20 +14,40 @@ import Chip from '../../components/common/Chip';
 import DdayCard from './DdayCard';
 
 const quickActions = [
-  { emoji: '📷', label: '3초 기록', bg: colors.pinkTint, route: 'RecordScreen' },
-  { emoji: '🤖', label: 'AI 리포트', bg: colors.blueTint, route: 'ReportView' },
-  { emoji: '💌', label: '타임캡슐', bg: colors.yellowTint, route: 'TimeCapsuleScreen' },
+  { emoji: '📷', label: '3초 기록',   bg: colors.pinkTint,     route: 'RecordScreen' },
+  { emoji: '🤖', label: 'AI 리포트',  bg: colors.blueTint,     route: 'ReportView' },
+  { emoji: '💌', label: '타임캡슐',   bg: colors.yellowTint,   route: 'TimeCapsuleScreen' },
+  { emoji: '❓', label: '데일리 Q&A', bg: colors.greenTint,    route: 'DailyQAScreen' },
+  { emoji: '📍', label: '위치 공유',  bg: colors.lavenderTint, route: 'LocationShare' },
+  { emoji: '🤔', label: '만약에 AI',  bg: colors.pinkTint,     route: 'WhatIfScreen' },
 ];
 
 const recentMemories = [
-  { emoji: '🌸', tag: '#데이트', place: '서울숲', date: '3.15' },
-  { emoji: '🍜', tag: '#음식', place: '신촌', date: '3.14' },
-  { emoji: '🎡', tag: '#데이트', place: '롯데월드', date: '3.1' },
-  { emoji: '🌅', tag: '#여행', place: '해운대', date: '2.20' },
+  { emoji: '🌸', tag: '#데이트', place: '서울숲',   date: '3.15', tint: '#FFE4EE',         h: 200 },
+  { emoji: '🍜', tag: '#음식',   place: '신촌',     date: '3.14', tint: colors.yellowTint, h: 140 },
+  { emoji: '🎡', tag: '#데이트', place: '롯데월드', date: '3.1',  tint: '#FFE4EE',         h: 220 },
+  { emoji: '🌅', tag: '#여행',   place: '해운대',   date: '2.20', tint: '#FFF0E5',         h: 150 },
 ];
 
 const HomeScreen = ({ navigation }) => {
   const emojiScale = useRef(new Animated.Value(1)).current;
+
+  const [memLeft, memRight] = useMemo(() => {
+    const l = [];
+    const r = [];
+    let lH = 0;
+    let rH = 0;
+    recentMemories.forEach((m) => {
+      if (lH <= rH) {
+        l.push(m);
+        lH += m.h;
+      } else {
+        r.push(m);
+        rH += m.h;
+      }
+    });
+    return [l, r];
+  }, []);
 
   useEffect(() => {
     Animated.loop(
@@ -67,11 +87,30 @@ const HomeScreen = ({ navigation }) => {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* D-Day Hero Card */}
-        <DdayCard daysCount={247} startDate="2025.08.03" myName="예진" partnerName="지호" />
+        <DdayCard
+          daysCount={247}
+          startDate="2025.08.03"
+          myName="예진"
+          partnerName="지호"
+          onCharacterPress={() => navigation.navigate('CharacterScreen')}
+        />
 
         {/* 오늘의 우리 감정 Card */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>오늘의 우리 감정</Text>
+        <TouchableOpacity
+          style={styles.card}
+          onPress={() => navigation.navigate('ReportView')}
+          activeOpacity={0.85}
+        >
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>오늘의 우리 감정</Text>
+            <View style={styles.cardHeaderRight}>
+              <View style={styles.aiBadge}>
+                <Text style={styles.aiBadgeText}>AI 분석</Text>
+              </View>
+              <Text style={styles.cardChevron}>›</Text>
+            </View>
+          </View>
+
           <View style={styles.emotionRow}>
             <Animated.Text style={[styles.bigEmoji, { transform: [{ scale: emojiScale }] }]}>
               😊
@@ -79,27 +118,56 @@ const HomeScreen = ({ navigation }) => {
             <View style={styles.emotionChips}>
               <Chip label="긍정 68%" variant="green" />
               <Chip label="부정 22%" variant="pink" />
+              <Chip label="중립 10%" variant="gray" />
             </View>
           </View>
+
+          {/* Stacked emotion bar */}
+          <View style={styles.emotionBar}>
+            <View style={[styles.emotionSeg, { flex: 68, backgroundColor: colors.green }]} />
+            <View style={[styles.emotionSeg, { flex: 22, backgroundColor: colors.pink }]} />
+            <View style={[styles.emotionSeg, { flex: 10, backgroundColor: colors.line }]} />
+          </View>
+
+          {/* Stats row */}
+          <View style={styles.statsRow}>
+            {[
+              { icon: '💬', value: '32', label: '대화' },
+              { icon: '📸', value: '4', label: '사진' },
+              { icon: '💞', value: '12', label: '감정 기록' },
+            ].map((s, i) => (
+              <View key={i} style={styles.statItem}>
+                <Text style={styles.statIcon}>{s.icon}</Text>
+                <Text style={styles.statValue}>{s.value}</Text>
+                <Text style={styles.statLabel}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
+
           <Text style={styles.aiSummary}>
             오늘 대화에서 긍정적인 감정이 주를 이뤘어요. 서로에 대한 배려가 느껴지는 하루네요! 💕
           </Text>
-        </View>
+        </TouchableOpacity>
 
         {/* Quick Actions */}
-        <View style={styles.quickActionsRow}>
-          {quickActions.map((action, idx) => (
-            <TouchableOpacity
-              key={idx}
-              style={[styles.quickAction, { backgroundColor: action.bg }]}
-              onPress={() => action.route && navigation.navigate(action.route)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.quickActionEmoji}>{action.emoji}</Text>
-              <Text style={styles.quickActionLabel}>{action.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {[quickActions.slice(0, 3), quickActions.slice(3, 6)].map((row, ri) => (
+          <View
+            key={ri}
+            style={[styles.quickActionsRow, ri > 0 && { marginTop: 12 }]}
+          >
+            {row.map((action, idx) => (
+              <TouchableOpacity
+                key={idx}
+                style={[styles.quickAction, { backgroundColor: action.bg }]}
+                onPress={() => action.route && navigation.navigate(action.route)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.quickActionEmoji}>{action.emoji}</Text>
+                <Text style={styles.quickActionLabel}>{action.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ))}
 
         {/* 1년 전 오늘 Banner */}
         <LinearGradient
@@ -123,17 +191,31 @@ const HomeScreen = ({ navigation }) => {
             <Text style={styles.seeAll}>더보기</Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.memoryGrid}>
-          {recentMemories.map((mem, idx) => (
-            <TouchableOpacity key={idx} style={styles.memoryCard}>
-              <View style={styles.memoryImagePlaceholder}>
-                <Text style={styles.memoryEmoji}>{mem.emoji}</Text>
-              </View>
-              <View style={styles.memoryInfo}>
-                <Text style={styles.memoryTag}>{mem.tag}</Text>
-                <Text style={styles.memoryMeta}>{mem.place} · {mem.date}</Text>
-              </View>
-            </TouchableOpacity>
+        <View style={styles.feedRow}>
+          {[memLeft, memRight].map((col, ci) => (
+            <View key={ci} style={styles.feedCol}>
+              {col.map((m, i) => (
+                <TouchableOpacity
+                  key={`${ci}-${i}`}
+                  activeOpacity={0.85}
+                  style={[styles.feedCard, { height: m.h, backgroundColor: m.tint }]}
+                  onPress={() => navigation.navigate('앨범')}
+                >
+                  <View style={styles.feedTagPill}>
+                    <Text style={styles.feedTagText}>{m.tag}</Text>
+                  </View>
+                  <View style={styles.feedEmojiWrap}>
+                    <Text style={styles.feedEmoji}>{m.emoji}</Text>
+                  </View>
+                  <LinearGradient
+                    colors={['transparent', 'rgba(0,0,0,0.45)']}
+                    style={styles.feedFade}
+                  >
+                    <Text style={styles.feedMeta}>{m.place} · {m.date}</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ))}
+            </View>
           ))}
         </View>
 
@@ -211,11 +293,37 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
   cardTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: colors.ink,
-    marginBottom: 12,
+  },
+  cardHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  aiBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: colors.pinkTint,
+  },
+  aiBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.pink,
+  },
+  cardChevron: {
+    fontSize: 18,
+    color: colors.inkMute,
+    fontWeight: '300',
   },
   emotionRow: {
     flexDirection: 'row',
@@ -228,7 +336,43 @@ const styles = StyleSheet.create({
   },
   emotionChips: {
     flexDirection: 'column',
-    gap: 8,
+    gap: 6,
+    flex: 1,
+  },
+  emotionBar: {
+    flexDirection: 'row',
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 14,
+  },
+  emotionSeg: {
+    height: '100%',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 12,
+    backgroundColor: colors.bgSoft,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statIcon: {
+    fontSize: 16,
+    marginBottom: 2,
+  },
+  statValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.ink,
+  },
+  statLabel: {
+    fontSize: 10,
+    color: colors.inkMute,
+    marginTop: 1,
   },
   aiSummary: {
     fontSize: 13,
@@ -306,41 +450,57 @@ const styles = StyleSheet.create({
     color: colors.pink,
     fontWeight: '500',
   },
-  memoryGrid: {
+  feedRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginHorizontal: 12,
-    gap: 8,
+    marginHorizontal: 16,
+    gap: 10,
   },
-  memoryCard: {
-    width: '47%',
-    marginHorizontal: 4,
+  feedCol: {
+    flex: 1,
+    gap: 10,
+  },
+  feedCard: {
     borderRadius: 14,
-    backgroundColor: colors.bgSoft,
     overflow: 'hidden',
-    marginBottom: 4,
+    position: 'relative',
   },
-  memoryImagePlaceholder: {
-    height: 120,
-    backgroundColor: colors.line2,
+  feedTagPill: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    zIndex: 2,
+  },
+  feedTagText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.pink,
+  },
+  feedEmojiWrap: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  memoryEmoji: {
-    fontSize: 40,
+  feedEmoji: {
+    fontSize: 48,
+    opacity: 0.75,
   },
-  memoryInfo: {
-    padding: 10,
+  feedFade: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingTop: 18,
+    paddingHorizontal: 10,
+    paddingBottom: 8,
   },
-  memoryTag: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.pink,
-    marginBottom: 2,
-  },
-  memoryMeta: {
+  feedMeta: {
+    color: '#FFFFFF',
     fontSize: 11,
-    color: colors.inkMute,
+    fontWeight: '600',
   },
 });
 

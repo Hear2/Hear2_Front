@@ -11,6 +11,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
 import Chip from '../../components/common/Chip';
 
+const VOICE_BAR_HEIGHTS = [
+  6, 14, 10, 18, 22, 14, 8, 16, 20, 24, 18, 12,
+  8, 14, 22, 18,
+];
+
 const messages = [
   {
     id: 1,
@@ -98,16 +103,22 @@ const ChatScreen = ({ navigation }) => {
                 </View>
               )}
               <View style={styles.msgGroup}>
-                <View
-                  style={[
-                    styles.bubble,
-                    isMe ? styles.bubbleMe : styles.bubbleThem,
-                  ]}
-                >
-                  <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
-                    {msg.text}
-                  </Text>
-                </View>
+                {isMe ? (
+                  <LinearGradient
+                    colors={[colors.pink, colors.pinkSoft]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[styles.bubble, styles.bubbleMe]}
+                  >
+                    <Text style={[styles.bubbleText, styles.bubbleTextMe]}>
+                      {msg.text}
+                    </Text>
+                  </LinearGradient>
+                ) : (
+                  <View style={[styles.bubble, styles.bubbleThem]}>
+                    <Text style={styles.bubbleText}>{msg.text}</Text>
+                  </View>
+                )}
                 <View style={[styles.moodChipWrap, isMe && { alignSelf: 'flex-end' }]}>
                   <View style={[styles.moodChip, { backgroundColor: msg.moodColor + '20' }]}>
                     <View style={[styles.moodDot, { backgroundColor: msg.moodColor }]} />
@@ -142,10 +153,16 @@ const ChatScreen = ({ navigation }) => {
               end={{ x: 1, y: 0 }}
               style={styles.voiceBubble}
             >
-              <Text style={styles.voiceMic}>🎤</Text>
-              <View style={styles.voiceProgress}>
-                <View style={styles.voiceBar} />
-                <View style={styles.voiceBarFill} />
+              <TouchableOpacity hitSlop={6} style={styles.voicePlayBtn}>
+                <Text style={styles.voicePlayIcon}>▶</Text>
+              </TouchableOpacity>
+              <View style={styles.voiceWaveform}>
+                {VOICE_BAR_HEIGHTS.map((h, i) => (
+                  <View
+                    key={i}
+                    style={[styles.voiceWaveBar, { height: h }]}
+                  />
+                ))}
               </View>
               <Text style={styles.voiceDuration}>0:08</Text>
             </LinearGradient>
@@ -370,37 +387,45 @@ const styles = StyleSheet.create({
   voiceBubble: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 18,
-    borderTopRightRadius: 4,
-    paddingHorizontal: 14,
+    borderRadius: 22,
+    borderTopRightRadius: 6,
+    paddingHorizontal: 12,
     paddingVertical: 10,
+    minWidth: 200,
   },
-  voiceMic: {
-    fontSize: 16,
+  voicePlayBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: 8,
   },
-  voiceProgress: {
+  voicePlayIcon: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    marginLeft: 2,
+  },
+  voiceWaveform: {
     flex: 1,
-    height: 4,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 2,
-    marginRight: 8,
-    minWidth: 80,
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 28,
+    marginRight: 10,
+    overflow: 'hidden',
   },
-  voiceBar: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: '60%',
+  voiceWaveBar: {
+    width: 2.5,
+    marginHorizontal: 1.5,
     backgroundColor: '#FFFFFF',
-    borderRadius: 2,
+    borderRadius: 1.5,
   },
-  voiceBarFill: {},
   voiceDuration: {
     color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
+    minWidth: 28,
+    textAlign: 'right',
   },
   // Input Bar
   inputBar: {

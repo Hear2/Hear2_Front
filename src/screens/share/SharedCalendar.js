@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import Heart from '../../components/common/Heart';
 
@@ -58,18 +57,17 @@ const HeaderIcon = ({ name }) => {
       </Svg>
     );
   }
-  if (name === 'calendar') {
+  if (name === 'bell') {
     return (
       <Svg width={20} height={20} viewBox="0 0 24 24">
-        <Path {...props} d="M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM3 9h18M8 3v4M16 3v4" />
+        <Path {...props} d="M18 16v-5a6 6 0 0 0-12 0v5l-2 2h16l-2-2zM10 21a2 2 0 0 0 4 0" />
       </Svg>
     );
   }
-  if (name === 'settings') {
+  if (name === 'plus') {
     return (
-      <Svg width={20} height={20} viewBox="0 0 24 24">
-        <Path {...props} d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
-        <Path {...props} d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      <Svg width={22} height={22} viewBox="0 0 24 24">
+        <Path {...props} d="M12 5v14M5 12h14" />
       </Svg>
     );
   }
@@ -165,7 +163,7 @@ export default function SharedCalendar({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <View style={styles.safe}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -177,8 +175,8 @@ export default function SharedCalendar({ navigation }) {
           </Text>
           <View style={styles.headerIcons}>
             <TouchableOpacity hitSlop={8} style={styles.headerIconBtn} onPress={() => navigation?.navigate('SearchScreen')}><HeaderIcon name="search" /></TouchableOpacity>
-            <TouchableOpacity hitSlop={8} style={styles.headerIconBtn}><HeaderIcon name="calendar" /></TouchableOpacity>
-            <TouchableOpacity hitSlop={8} onPress={() => navigation?.navigate('SettingsScreen')}><HeaderIcon name="settings" /></TouchableOpacity>
+            <TouchableOpacity hitSlop={8} style={styles.headerIconBtn} onPress={() => navigation?.navigate('NotificationsScreen')}><HeaderIcon name="bell" /></TouchableOpacity>
+            <TouchableOpacity hitSlop={8}><HeaderIcon name="plus" /></TouchableOpacity>
           </View>
         </View>
 
@@ -261,7 +259,7 @@ export default function SharedCalendar({ navigation }) {
           })}
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -274,12 +272,12 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   header: {
-    paddingTop: 8,
-    paddingBottom: 6,
-    paddingHorizontal: 20,
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 56,
+    paddingBottom: 12,
   },
   bigMonth: {
     fontSize: 34,

@@ -22,6 +22,8 @@ import MemoryCalendar from '../screens/memory/MemoryCalendar';
 import PhotoUpload from '../screens/memory/PhotoUpload';
 import CharacterScreen from '../screens/home/CharacterScreen';
 import SearchScreen from '../screens/share/SearchScreen';
+import QuestionHistoryScreen from '../screens/chat/QuestionHistoryScreen';
+import QuestionDetailScreen from '../screens/chat/QuestionDetailScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -57,6 +59,8 @@ export default function RootNavigator() {
       <Stack.Screen name="PhotoUpload" component={PhotoUpload} />
       <Stack.Screen name="CharacterScreen" component={CharacterScreen} />
       <Stack.Screen name="SearchScreen" component={SearchScreen} />
+      <Stack.Screen name="QuestionHistoryScreen" component={QuestionHistoryScreen} />
+      <Stack.Screen name="QuestionDetailScreen" component={QuestionDetailScreen} />
     </Stack.Navigator>
   );
 }
