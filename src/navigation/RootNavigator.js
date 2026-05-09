@@ -20,10 +20,13 @@ import SettingsScreen from '../screens/my/SettingsScreen';
 import AnniversaryScreen from '../screens/share/AnniversaryScreen';
 import MemoryCalendar from '../screens/memory/MemoryCalendar';
 import PhotoUpload from '../screens/memory/PhotoUpload';
+import PhotoDetailScreen from '../screens/memory/PhotoDetailScreen';
 import CharacterScreen from '../screens/home/CharacterScreen';
 import SearchScreen from '../screens/share/SearchScreen';
 import QuestionHistoryScreen from '../screens/chat/QuestionHistoryScreen';
 import QuestionDetailScreen from '../screens/chat/QuestionDetailScreen';
+import EventAddScreen from '../screens/share/EventAddScreen';
+import EventDetailScreen from '../screens/share/EventDetailScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -57,10 +60,13 @@ export default function RootNavigator() {
       <Stack.Screen name="AnniversaryScreen" component={AnniversaryScreen} />
       <Stack.Screen name="MemoryCalendar" component={MemoryCalendar} />
       <Stack.Screen name="PhotoUpload" component={PhotoUpload} />
+      <Stack.Screen name="PhotoDetail" component={PhotoDetailScreen} />
       <Stack.Screen name="CharacterScreen" component={CharacterScreen} />
       <Stack.Screen name="SearchScreen" component={SearchScreen} />
       <Stack.Screen name="QuestionHistoryScreen" component={QuestionHistoryScreen} />
       <Stack.Screen name="QuestionDetailScreen" component={QuestionDetailScreen} />
+      <Stack.Screen name="EventAdd" component={EventAddScreen} />
+      <Stack.Screen name="EventDetail" component={EventDetailScreen} />
     </Stack.Navigator>
   );
 }

@@ -9,22 +9,14 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
+import { useMemories } from '../../contexts/MemoryContext';
 
 const filters = ['전체', '데이트', '여행', '음식', '집', '기념일'];
 
-const memories = [
-  { emoji: '🌸', tag: '#데이트', place: '서울숲',   date: '3.15', tint: '#FFE4EE', h: 200 },
-  { emoji: '🍜', tag: '#음식',   place: '신촌',     date: '3.14', tint: colors.yellowTint, h: 140 },
-  { emoji: '🎡', tag: '#데이트', place: '롯데월드', date: '3.1',  tint: '#FFE4EE', h: 220 },
-  { emoji: '🌅', tag: '#여행',   place: '해운대',   date: '2.20', tint: '#FFF0E5', h: 150 },
-  { emoji: '🎂', tag: '#기념일', place: '집',       date: '2.14', tint: colors.yellowTint, h: 180 },
-  { emoji: '☕', tag: '#데이트', place: '카페',     date: '2.10', tint: '#FFE4EE', h: 160 },
-];
-
-const moodGroups = [
-  { mood: '😊 행복', count: 14, color: colors.green,  tint: colors.greenTint, items: memories.slice(0, 3) },
-  { mood: '🥰 사랑', count: 8,  color: colors.heartRed, tint: '#FFE4EE',     items: memories.slice(2, 5) },
-  { mood: '🌅 평화', count: 5,  color: colors.peach,  tint: '#FFF0E5',     items: memories.slice(3, 6) },
+const MOOD_GROUP_DEFS = [
+  { id: 'happy', mood: '😊 행복', color: colors.green,    tint: colors.greenTint },
+  { id: 'love',  mood: '🥰 사랑', color: colors.heartRed, tint: '#FFE4EE' },
+  { id: 'peace', mood: '🌅 평화', color: colors.peach,    tint: '#FFF0E5' },
 ];
 
 const VIEW_MODES = [
@@ -32,33 +24,39 @@ const VIEW_MODES = [
   { key: 'category', label: '카테고리 그리드', subtitle: '감정별 분류' },
 ];
 
-const AlbumScreen = () => {
+const AlbumScreen = ({ navigation }) => {
+  const { memories } = useMemories();
   const [activeFilter, setActiveFilter] = useState('전체');
   const [viewMode, setViewMode] = useState('feed');
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const currentMode = VIEW_MODES.find((m) => m.key === viewMode) ?? VIEW_MODES[0];
+  const goAdd = () => navigation?.navigate?.('PhotoUpload');
+  const goDetail = (memory) => navigation?.navigate?.('PhotoDetail', { memory });
 
   const filteredMemories = useMemo(() => {
     if (activeFilter === '전체') return memories;
     return memories.filter((m) => m.tag === `#${activeFilter}`);
-  }, [activeFilter]);
+  }, [activeFilter, memories]);
 
   const filteredMoodGroups = useMemo(() => {
-    if (activeFilter === '전체') return moodGroups;
-    return moodGroups
-      .map((g) => ({
-        ...g,
-        items: g.items.filter((m) => m.tag === `#${activeFilter}`),
-      }))
+    return MOOD_GROUP_DEFS
+      .map((g) => {
+        const items = memories.filter(
+          (m) =>
+            m.mood === g.id &&
+            (activeFilter === '전체' || m.tag === `#${activeFilter}`),
+        );
+        return { ...g, items, count: items.length };
+      })
       .filter((g) => g.items.length > 0);
-  }, [activeFilter]);
+  }, [activeFilter, memories]);
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>추억 앨범</Text>
-        <TouchableOpacity>
+        <TouchableOpacity onPress={goAdd}>
           <Text style={styles.addBtn}>+ 추가</Text>
         </TouchableOpacity>
       </View>
@@ -148,9 +146,9 @@ const AlbumScreen = () => {
         contentContainerStyle={styles.gridContainer}
       >
         {viewMode === 'feed' ? (
-          <FeedGrid items={filteredMemories} />
+          <FeedGrid items={filteredMemories} onPick={goDetail} />
         ) : (
-          <CategoryGrid groups={filteredMoodGroups} />
+          <CategoryGrid groups={filteredMoodGroups} onPick={goDetail} />
         )}
         {((viewMode === 'feed' && filteredMemories.length === 0) ||
           (viewMode === 'category' && filteredMoodGroups.length === 0)) && (
@@ -159,7 +157,7 @@ const AlbumScreen = () => {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      <TouchableOpacity style={styles.fab} activeOpacity={0.8}>
+      <TouchableOpacity style={styles.fab} activeOpacity={0.8} onPress={goAdd}>
         <LinearGradient colors={[colors.pink, colors.heartRed]} style={styles.fabGradient}>
           <Text style={styles.fabIcon}>+</Text>
         </LinearGradient>
@@ -169,7 +167,7 @@ const AlbumScreen = () => {
 };
 
 // Feed (Masonry-style 2-column with varied heights)
-const FeedGrid = ({ items }) => {
+const FeedGrid = ({ items, onPick }) => {
   const [left, right] = useMemo(() => {
     const l = [];
     const r = [];
@@ -190,6 +188,7 @@ const FeedGrid = ({ items }) => {
   const Card = ({ m }) => (
     <TouchableOpacity
       activeOpacity={0.85}
+      onPress={() => onPick?.(m)}
       style={[styles.feedCard, { height: m.h, backgroundColor: m.tint }]}
     >
       <View style={styles.feedTagPill}>
@@ -220,7 +219,7 @@ const FeedGrid = ({ items }) => {
 };
 
 // Category (mood-grouped horizontal scrollers)
-const CategoryGrid = ({ groups }) => (
+const CategoryGrid = ({ groups, onPick }) => (
   <View>
     {groups.map((g, i) => (
       <View key={i} style={styles.moodGroup}>
@@ -242,6 +241,7 @@ const CategoryGrid = ({ groups }) => (
             <TouchableOpacity
               key={j}
               activeOpacity={0.85}
+              onPress={() => onPick?.(m)}
               style={[styles.moodCard, { backgroundColor: g.tint }]}
             >
               <Text style={styles.moodEmoji}>{m.emoji}</Text>
