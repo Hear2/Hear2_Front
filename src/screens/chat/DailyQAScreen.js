@@ -128,7 +128,16 @@ const DailyQAScreen = ({ navigation }) => {
         </View>
 
         {/* CTA Button */}
-        <TouchableOpacity style={styles.ctaButton} activeOpacity={0.85}>
+        <TouchableOpacity
+          style={styles.ctaButton}
+          activeOpacity={0.85}
+          onPress={() =>
+            navigation?.navigate('DailyQASubmittedScreen', {
+              answer,
+              day: 127,
+            })
+          }
+        >
           <LinearGradient
             colors={[colors.pink, colors.rose]}
             start={{ x: 0, y: 0 }}

@@ -14,10 +14,10 @@ import Header from '../../components/common/Header';
 import Chip from '../../components/common/Chip';
 
 const categories = [
-  { emoji: '⚠️', label: '갈등 예측', bg: '#FFF0F0', color: '#FF6B6B' },
-  { emoji: '🎁', label: '선물 추천', bg: colors.pinkTint, color: colors.pink },
-  { emoji: '✈️', label: '여행 시뮬', bg: colors.blueTint, color: colors.blue },
-  { emoji: '💭', label: '대화 코칭', bg: colors.yellowTint, color: '#E8A800' },
+  { emoji: '⚠️', label: '갈등 예측', bg: '#FFF0F0', color: '#FF6B6B', route: 'WhatIfConflictScreen' },
+  { emoji: '🎁', label: '선물 추천', bg: colors.pinkTint, color: colors.pink, route: 'WhatIfGiftScreen' },
+  { emoji: '✈️', label: '여행 시뮬', bg: colors.blueTint, color: colors.blue, route: 'WhatIfTripScreen' },
+  { emoji: '💭', label: '대화 코칭', bg: colors.yellowTint, color: '#E8A800', route: 'WhatIfCoachScreen' },
 ];
 
 const WhatIfScreen = ({ navigation }) => {
@@ -38,6 +38,7 @@ const WhatIfScreen = ({ navigation }) => {
               key={idx}
               style={[styles.categoryCard, { backgroundColor: cat.bg }]}
               activeOpacity={0.7}
+              onPress={() => cat.route && navigation?.navigate(cat.route)}
             >
               <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
               <Text style={[styles.categoryLabel, { color: cat.color }]}>{cat.label}</Text>
@@ -82,7 +83,11 @@ const WhatIfScreen = ({ navigation }) => {
             <TouchableOpacity style={styles.simBtnOutline} activeOpacity={0.7}>
               <Text style={styles.simBtnOutlineText}>다시 시뮬</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.simBtnFill} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.simBtnFill}
+              activeOpacity={0.8}
+              onPress={() => navigation?.navigate('WhatIfSolutionScreen')}
+            >
               <LinearGradient
                 colors={[colors.pink, colors.rose]}
                 start={{ x: 0, y: 0 }}

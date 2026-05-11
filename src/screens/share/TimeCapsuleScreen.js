@@ -44,7 +44,11 @@ const TimeCapsuleScreen = ({ navigation }) => {
         showBack
         onBack={() => navigation?.goBack()}
         right={
-          <TouchableOpacity style={styles.createBtn}>
+          <TouchableOpacity
+            style={styles.createBtn}
+            onPress={() => navigation?.navigate('TimeCapsuleCreateScreen')}
+            activeOpacity={0.7}
+          >
             <Text style={styles.createBtnText} numberOfLines={1}>+ 만들기</Text>
           </TouchableOpacity>
         }
@@ -113,7 +117,11 @@ const TimeCapsuleScreen = ({ navigation }) => {
 
         {/* Opened Capsules */}
         <Text style={styles.sectionTitle}>이미 열린 캡슐</Text>
-        <TouchableOpacity style={styles.openedCapsule} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={styles.openedCapsule}
+          activeOpacity={0.7}
+          onPress={() => navigation?.navigate('TimeCapsuleOpenedScreen')}
+        >
           <Text style={styles.openedEmoji}>💝</Text>
           <View style={styles.openedInfo}>
             <Text style={styles.openedTitle}>1주년 기념 캡슐</Text>

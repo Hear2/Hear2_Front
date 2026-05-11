@@ -6,7 +6,15 @@ import {
   StyleSheet,
   Animated,
 } from 'react-native';
-import Svg, { Path, Circle, Text as SvgText, Line } from 'react-native-svg';
+import Svg, {
+  Path,
+  Circle,
+  Text as SvgText,
+  Line,
+  Defs,
+  RadialGradient,
+  Stop,
+} from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
 import Header from '../../components/common/Header';
@@ -111,10 +119,31 @@ export default function ReportView({ navigation }) {
         ))}
 
         {/* AI Insight */}
-        <LinearGradient colors={[colors.pink, colors.pinkDeep]} style={styles.insightCard} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-          <Text style={styles.insightIcon}>🤖</Text>
+        <LinearGradient
+          colors={['#FFE4EE', colors.pinkSoft, colors.pink]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.insightCard}
+        >
+          <View style={styles.insightAurora} pointerEvents="none">
+            <Svg width="100%" height="100%" viewBox="0 0 200 200">
+              <Defs>
+                <RadialGradient id="insightGlow" cx="50%" cy="50%" r="50%">
+                  <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.45" />
+                  <Stop offset="60%" stopColor="#FFFFFF" stopOpacity="0.15" />
+                  <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+                </RadialGradient>
+              </Defs>
+              <Circle cx="100" cy="100" r="100" fill="url(#insightGlow)" />
+            </Svg>
+          </View>
+          <View style={styles.insightIconWrap}>
+            <Text style={styles.insightIcon}>🤖</Text>
+          </View>
+          <Text style={styles.insightLabel}>HEAR2 AI 인사이트</Text>
           <Text style={styles.insightText}>
-            점심 시간 이후 부정 감정이 살짝 늘었지만, 저녁에는 긍정으로 전환됐어요. 오늘 잠들기 전 따뜻한 메시지를 남겨보세요 💌
+            점심 시간 이후 부정 감정이 살짝 늘었지만, 저녁에는 긍정으로
+            전환됐어요. 오늘 잠들기 전 따뜻한 메시지를 남겨보세요 💌
           </Text>
         </LinearGradient>
       </ScrollView>
@@ -149,7 +178,45 @@ const styles = StyleSheet.create({
   momentBadge: { alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   momentBadgeText: { fontSize: 11, fontWeight: '600' },
 
-  insightCard: { borderRadius: 16, padding: 20, marginTop: 12 },
-  insightIcon: { fontSize: 24, marginBottom: 8 },
-  insightText: { fontSize: 14, color: colors.bgApp, lineHeight: 22 },
+  insightCard: {
+    borderRadius: 20,
+    padding: 20,
+    marginTop: 12,
+    overflow: 'hidden',
+    shadowColor: colors.pink,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  insightAurora: {
+    position: 'absolute',
+    right: -80,
+    top: -80,
+    width: 220,
+    height: 220,
+  },
+  insightIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  insightIcon: { fontSize: 22 },
+  insightLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.9)',
+    letterSpacing: 0.6,
+    marginBottom: 4,
+  },
+  insightText: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    lineHeight: 22,
+    fontWeight: '500',
+  },
 });
