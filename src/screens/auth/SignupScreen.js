@@ -9,11 +9,23 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import colors from '../../constants/colors';
 import Header from '../../components/common/Header';
 import Button from '../../components/common/Button';
+import CalendarPicker from '../../components/common/CalendarPicker';
+import endpoints from '../../constants/endpoints';
+import { signup as signupRequest } from '../../api/authAPI';
+import { useAuth } from '../../contexts/AuthContext';
+
+// 백엔드 enum 값. 한국어 라벨 → 코드 변환 표 (확정 전, 추후 백엔드 확인 후 조정).
+const GENDER_MAP = {
+  여성: 'FEMALE',
+  남성: 'MALE',
+  비공개: 'UNDISCLOSED',
+};
 
 const CalendarIcon = () => (
   <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -34,10 +46,19 @@ const CalendarIcon = () => (
   </Svg>
 );
 
-const SignupScreen = ({ navigation }) => {
+const formatBirthday = (d) =>
+  `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
+
+const SignupScreen = ({ navigation, route }) => {
+  const email = route?.params?.email ?? null;
+  const password = route?.params?.password ?? null;
   const [nickname, setNickname] = useState('예진');
-  const [birthday] = useState('1998년 5월 12일');
+  const [birthday, setBirthday] = useState(new Date(1998, 4, 12));
+  const [openBirthday, setOpenBirthday] = useState(false);
   const [gender, setGender] = useState('여성');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const { signIn } = useAuth();
   const wiggle = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -71,8 +92,56 @@ const SignupScreen = ({ navigation }) => {
     outputRange: ['-15deg', '0deg', '15deg'],
   });
 
-  const handleNext = () => {
-    navigation.navigate('PartnerConnect');
+  const goToPartnerConnect = (profile) => {
+    navigation.navigate('PartnerConnect', { wizardMode: true, profile });
+  };
+
+  const handleNext = async () => {
+    if (submitting) return;
+    setError(null);
+
+    const profile = {
+      email,
+      password,
+      nickname: nickname.trim(),
+      birthday: birthday.toISOString().slice(0, 10),
+      gender: GENDER_MAP[gender] ?? gender,
+    };
+
+    // MOCK 모드: 가입 API 건너뛰고 곧장 다음 단계
+    if (endpoints.MOCK) {
+      await signIn({
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+        user: { email, nickname: profile.nickname },
+      });
+      goToPartnerConnect(profile);
+      return;
+    }
+
+    if (!email || !password) {
+      setError('이메일/비밀번호 정보가 없습니다. 처음부터 다시 시도해주세요.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await signupRequest(profile);
+      // 백엔드가 /signup 시점에 토큰을 발급하지만 email_verified=false 상태이므로
+      // 이메일 인증 화면으로 분기. signIn은 인증 완료 후에 호출.
+      navigation.navigate('EmailVerify', {
+        email,
+        nickname: profile.nickname,
+        accessToken: res?.accessToken ?? null,
+        refreshToken: res?.refreshToken ?? null,
+        user: res?.user ?? null,
+        profile,
+      });
+    } catch (err) {
+      setError(err?.message || '회원가입에 실패했어요.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const genderOptions = ['여성', '남성', '비공개'];
@@ -138,8 +207,12 @@ const SignupScreen = ({ navigation }) => {
         {/* Birthday input */}
         <View style={styles.fieldSection}>
           <Text style={styles.fieldLabel}>생년월일</Text>
-          <TouchableOpacity style={styles.birthdayInput} activeOpacity={0.7}>
-            <Text style={styles.birthdayText}>{birthday}</Text>
+          <TouchableOpacity
+            style={styles.birthdayInput}
+            activeOpacity={0.7}
+            onPress={() => setOpenBirthday(true)}
+          >
+            <Text style={styles.birthdayText}>{formatBirthday(birthday)}</Text>
             <CalendarIcon />
           </TouchableOpacity>
         </View>
@@ -173,9 +246,35 @@ const SignupScreen = ({ navigation }) => {
       </ScrollView>
 
       {/* Bottom CTA */}
+      {!!error && (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
+
       <View style={styles.bottomSection}>
-        <Button title="다음" onPress={handleNext} />
+        <View style={styles.btnWrap}>
+          <Button
+            title={submitting ? '가입 중…' : '다음'}
+            onPress={submitting ? undefined : handleNext}
+            style={submitting && styles.btnDisabled}
+          />
+          {submitting && (
+            <View style={styles.btnSpinner} pointerEvents="none">
+              <ActivityIndicator color="#FFFFFF" />
+            </View>
+          )}
+        </View>
       </View>
+
+      <CalendarPicker
+        visible={openBirthday}
+        value={birthday}
+        onClose={() => setOpenBirthday(false)}
+        onSelect={(d) => setBirthday(d)}
+        minYear={1950}
+        maxYear={new Date().getFullYear()}
+      />
     </KeyboardAvoidingView>
   );
 };
@@ -316,6 +415,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 40,
     paddingTop: 12,
+  },
+  btnWrap: { position: 'relative' },
+  btnDisabled: { opacity: 0.7 },
+  btnSpinner: {
+    position: 'absolute',
+    right: 18,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+  },
+  errorBox: {
+    marginHorizontal: 24,
+    marginBottom: 8,
+    backgroundColor: '#FFF0F2',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  errorText: {
+    fontSize: 13,
+    color: colors.heartRed,
   },
 });
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import SplashScreen from '../screens/auth/SplashScreen';
@@ -49,15 +49,9 @@ import EventDetailScreen from '../screens/share/EventDetailScreen';
 const Stack = createNativeStackNavigator();
 
 export default function RootNavigator() {
-  const [isAuthenticated] = useState(true); // Default to authenticated for now
-
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="Splash">
-      <Stack.Screen
-        name="Splash"
-        component={SplashScreen}
-        initialParams={{ isAuthenticated }}
-      />
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Splash" component={SplashScreen} />
       <Stack.Screen name="Auth" component={AuthStackNavigator} />
       <Stack.Screen name="MainTabs" component={BottomTabNavigator} />
       <Stack.Screen name="ReportView" component={ReportView} />

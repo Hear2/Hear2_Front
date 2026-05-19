@@ -9,7 +9,6 @@ import {
   TextInput,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Rect } from 'react-native-svg';
 import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
 import Header from '../../components/common/Header';
@@ -153,25 +152,6 @@ const Toggle = ({ on, onPress }) => (
       ]}
     />
   </TouchableOpacity>
-);
-
-const VoiceWaveform = ({ color = '#FFB05B' }) => (
-  <Svg viewBox="0 0 160 16" width="100%" height="16">
-    {Array.from({ length: 28 }).map((_, i) => {
-      const h = 3 + Math.abs(Math.sin(i * 0.7)) * 10;
-      return (
-        <Rect
-          key={i}
-          x={i * 6}
-          y={(16 - h) / 2}
-          width="3"
-          height={h}
-          rx="1.5"
-          fill={color}
-        />
-      );
-    })}
-  </Svg>
 );
 
 const TimeCapsuleCreateScreen = ({ navigation }) => {
@@ -473,18 +453,6 @@ const TimeCapsuleCreateScreen = ({ navigation }) => {
             </View>
           </View>
 
-          {/* voice */}
-          <View style={styles.voiceCard}>
-            <View style={styles.voiceMic}>
-              <Text style={{ color: '#FFFFFF', fontSize: 16 }}>🎤</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.voiceTitle}>음성 메시지 0:18</Text>
-              <VoiceWaveform />
-            </View>
-            <Text style={styles.voicePlay}>재생</Text>
-          </View>
-
           {/* song */}
           <View style={styles.songCard}>
             <View style={styles.songIcon}>
@@ -767,26 +735,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   photoAddIcon: { fontSize: 20, color: '#BBB' },
-
-  voiceCard: {
-    marginTop: 10,
-    padding: 10,
-    borderRadius: 12,
-    backgroundColor: '#FFFAEB',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  voiceMic: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFB05B',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  voiceTitle: { fontSize: 12, fontWeight: '700', color: colors.ink },
-  voicePlay: { fontSize: 11, fontWeight: '800', color: '#FFB05B' },
 
   songCard: {
     marginTop: 10,

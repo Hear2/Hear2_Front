@@ -8,7 +8,6 @@ import {
   Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Rect } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
@@ -108,39 +107,6 @@ const Photos = () => {
   );
 };
 
-const Voice = () => (
-  <View style={styles.voiceCard}>
-    <LinearGradient
-      colors={['#FFB05B', colors.heartRed]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.playBtn}
-    >
-      <Text style={{ color: '#FFFFFF', fontSize: 14 }}>▶</Text>
-    </LinearGradient>
-    <View style={{ flex: 1 }}>
-      <Text style={styles.voiceTitle}>예진의 음성 메시지</Text>
-      <Svg viewBox="0 0 160 16" width="100%" height="14" style={{ marginTop: 4 }}>
-        {Array.from({ length: 28 }).map((_, i) => {
-          const h = 3 + Math.abs(Math.sin(i * 0.7)) * 10;
-          return (
-            <Rect
-              key={i}
-              x={i * 6}
-              y={(16 - h) / 2}
-              width="3"
-              height={h}
-              rx="1.5"
-              fill={i < 14 ? colors.heartRed : '#FFD0E0'}
-            />
-          );
-        })}
-      </Svg>
-    </View>
-    <Text style={styles.voiceTime}>0:18</Text>
-  </View>
-);
-
 const NowVsThen = () => {
   const rows = [
     { label: '연애 일수', then: '120일', now: '485일', delta: '+365' },
@@ -227,7 +193,6 @@ const TimeCapsuleOpenedScreen = ({ navigation }) => {
 
         <ContentsLetter />
         <Photos />
-        <Voice />
         <NowVsThen />
 
         <View style={styles.ctaRow}>
@@ -376,30 +341,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '600',
   },
-
-  voiceCard: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 14,
-    elevation: 3,
-  },
-  playBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  voiceTitle: { fontSize: 12, fontWeight: '800', color: colors.ink },
-  voiceTime: { fontSize: 10, color: '#888', fontWeight: '700' },
 
   nowTitle: {
     fontSize: 12,

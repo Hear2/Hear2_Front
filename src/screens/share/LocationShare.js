@@ -1,103 +1,225 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  Animated,
-  Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Path, Circle, Ellipse, Line } from 'react-native-svg';
+import Svg, { Circle, Line, Path } from 'react-native-svg';
+import * as Location from 'expo-location';
 import colors from '../../constants/colors';
 import Header from '../../components/common/Header';
-import Heart from '../../components/common/Heart';
-import Button from '../../components/common/Button';
+import KakaoMap from '../../components/common/KakaoMap';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const MyLocationIcon = ({ color = '#1E2152' }) => (
+  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+    <Line x1="12" y1="2" x2="12" y2="5" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    <Line x1="12" y1="19" x2="12" y2="22" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    <Line x1="2" y1="12" x2="5" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    <Line x1="19" y1="12" x2="22" y2="12" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    <Circle cx="12" cy="12" r="7" stroke={color} strokeWidth="2" fill="none" />
+    <Circle cx="12" cy="12" r="3" fill={color} />
+  </Svg>
+);
+
+const FitBoundsIcon = ({ color = '#1E2152' }) => (
+  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+    <Path
+      d="M4 9V5a1 1 0 0 1 1-1h4"
+      stroke={color}
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <Path
+      d="M20 9V5a1 1 0 0 0-1-1h-4"
+      stroke={color}
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <Path
+      d="M4 15v4a1 1 0 0 0 1 1h4"
+      stroke={color}
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <Path
+      d="M20 15v4a1 1 0 0 1-1 1h-4"
+      stroke={color}
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <Circle cx="9" cy="12" r="1.6" fill={color} />
+    <Circle cx="15" cy="12" r="1.6" fill={color} />
+  </Svg>
+);
+
+// 파트너 위치는 임시 하드코딩 (백엔드 연결 전): 홍대입구역 부근
+const PARTNER_COORD = { lat: 37.5572, lng: 126.9244, label: '홍대입구' };
+// 내 위치 fallback (권한 거부 시): 연남동
+const FALLBACK_MY_COORD = { lat: 37.5641, lng: 126.9244, label: '연남동' };
+
+const haversineKm = (a, b) => {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(s));
+};
 
 const LocationShare = ({ navigation }) => {
-  const breatheAnim = useRef(new Animated.Value(1)).current;
-  const heartPulse = useRef(new Animated.Value(0.6)).current;
+  const mapRef = useRef(null);
+  const [myCoord, setMyCoord] = useState(FALLBACK_MY_COORD);
+  const [myArea, setMyArea] = useState('연남동');
+  const [permissionGranted, setPermissionGranted] = useState(false);
+  const [mapError, setMapError] = useState(null);
 
   useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(breatheAnim, { toValue: 1.15, duration: 1500, useNativeDriver: true }),
-        Animated.timing(breatheAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
-      ])
-    ).start();
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(heartPulse, { toValue: 1, duration: 1000, useNativeDriver: true }),
-        Animated.timing(heartPulse, { toValue: 0.6, duration: 1000, useNativeDriver: true }),
-      ])
-    ).start();
+    let mounted = true;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        if (!mounted) return;
+        setPermissionGranted(true);
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (!mounted) return;
+        const next = {
+          lat: loc.coords.latitude,
+          lng: loc.coords.longitude,
+        };
+        setMyCoord(next);
+        try {
+          const places = await Location.reverseGeocodeAsync({
+            latitude: next.lat,
+            longitude: next.lng,
+          });
+          const p = places?.[0];
+          if (p && mounted) {
+            const region = p.district || p.subregion || p.city || '';
+            if (region) setMyArea(region);
+          }
+        } catch (err) {
+          if (__DEV__) console.warn('reverseGeocodeAsync failed', err);
+        }
+      } catch {}
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
+
+  const center = useMemo(
+    () => ({
+      lat: (myCoord.lat + PARTNER_COORD.lat) / 2,
+      lng: (myCoord.lng + PARTNER_COORD.lng) / 2,
+    }),
+    [myCoord],
+  );
+
+  const markers = useMemo(
+    () => [
+      { id: 'me', lat: myCoord.lat, lng: myCoord.lng, label: '예진' },
+      {
+        id: 'partner',
+        lat: PARTNER_COORD.lat,
+        lng: PARTNER_COORD.lng,
+        label: '지호',
+      },
+    ],
+    [myCoord],
+  );
+
+  const distanceKm = useMemo(
+    () => haversineKm(myCoord, PARTNER_COORD).toFixed(1),
+    [myCoord],
+  );
+
+  const handleFitBoth = () => {
+    mapRef.current?.fitBounds(markers.map(({ lat, lng }) => ({ lat, lng })));
+  };
+
+  const handleCenterMe = () => {
+    mapRef.current?.moveTo(myCoord.lat, myCoord.lng);
+  };
 
   return (
     <View style={styles.container}>
-      <Header title="위치 공유" showBack onBack={() => navigation?.goBack()} />
+      <Header
+        title="위치 공유"
+        showBack
+        onBack={() => navigation?.goBack()}
+      />
 
-      {/* Fake Map Area */}
+      {/* 카카오 지도 */}
       <View style={styles.mapArea}>
-        <LinearGradient
-          colors={[colors.blueTint, '#E0F0FF', colors.bgSoft]}
-          style={StyleSheet.absoluteFillObject}
-        />
-
-        {/* SVG Roads and Parks */}
-        <Svg width="100%" height="100%" style={StyleSheet.absoluteFillObject}>
-          {/* Roads */}
-          <Path d="M 0 120 Q 100 80 200 140 T 400 100" stroke="#D0D8E0" strokeWidth={8} fill="none" />
-          <Path d="M 50 250 Q 150 200 250 280 T 420 220" stroke="#D0D8E0" strokeWidth={6} fill="none" />
-          <Path d="M 180 0 Q 200 150 160 300 T 200 500" stroke="#D0D8E0" strokeWidth={7} fill="none" />
-          <Path d="M 300 50 Q 280 180 320 300" stroke="#D0D8E0" strokeWidth={5} fill="none" />
-          {/* Parks */}
-          <Ellipse cx="90" cy="180" rx="45" ry="35" fill="rgba(107,203,119,0.2)" />
-          <Ellipse cx="300" cy="160" rx="55" ry="40" fill="rgba(107,203,119,0.15)" />
-          {/* Dashed connecting line */}
-          <Line x1="120" y1="200" x2="280" y2="170" stroke={colors.pink} strokeWidth={2} strokeDasharray="8,6" opacity={0.6} />
-        </Svg>
-
-        {/* My Pin */}
-        <Animated.View style={[styles.pinContainer, styles.myPin, { transform: [{ scale: breatheAnim }] }]}>
-          <View style={[styles.pinDot, { backgroundColor: colors.pink }]}>
-            <Text style={styles.pinEmoji}>나</Text>
+        {mapError ? (
+          <View style={styles.mapFallback}>
+            <Text style={styles.mapFallbackEmoji}>🗺️</Text>
+            <Text style={styles.mapFallbackTitle}>지도를 불러올 수 없어요</Text>
+            <Text style={styles.mapFallbackDesc}>
+              네트워크 연결을 확인하거나 잠시 후 다시 시도해주세요.
+            </Text>
           </View>
-          <Text style={styles.pinLabel}>예진</Text>
-        </Animated.View>
+        ) : (
+          <KakaoMap
+            ref={mapRef}
+            center={center}
+            markers={markers}
+            level={5}
+            onError={(msg) => setMapError(msg || 'unknown')}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
 
-        {/* Partner Pin */}
-        <View style={[styles.pinContainer, styles.partnerPin]}>
-          <View style={[styles.pinDot, { backgroundColor: colors.blue }]}>
-            <Text style={styles.pinEmoji}>지</Text>
+        {/* 우측 컨트롤 */}
+        {!mapError && (
+          <View style={styles.zoomControls}>
+            <TouchableOpacity
+              style={styles.fab}
+              activeOpacity={0.85}
+              onPress={handleCenterMe}
+              hitSlop={4}
+            >
+              <MyLocationIcon color={colors.heartRed} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.fab}
+              activeOpacity={0.85}
+              onPress={handleFitBoth}
+              hitSlop={4}
+            >
+              <FitBoundsIcon color={colors.ink} />
+            </TouchableOpacity>
           </View>
-          <Text style={styles.pinLabel}>지호</Text>
-        </View>
-
-        {/* Pulsing Heart at Midpoint */}
-        <Animated.View style={[styles.midpointHeart, { opacity: heartPulse }]}>
-          <Heart size={20} color={colors.heartRed} pulse />
-        </Animated.View>
-
-        {/* Zoom Controls */}
-        <View style={styles.zoomControls}>
-          <TouchableOpacity style={styles.zoomBtn}><Text style={styles.zoomText}>+</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.zoomBtn}><Text style={styles.zoomText}>-</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.zoomBtn}><Text style={styles.zoomText}>{'\u25CE'}</Text></TouchableOpacity>
-        </View>
+        )}
       </View>
 
-      {/* Bottom Sheet */}
+      {/* 바닥 시트 */}
       <View style={styles.bottomSheet}>
         <View style={styles.sheetHandle} />
 
         <Text style={styles.distanceText}>
-          1.2km <Text style={styles.distanceHeart}>{'\u2665'}</Text> 가까워지는 중
+          {distanceKm}km{' '}
+          <Text style={styles.distanceHeart}>♥</Text> 가까워지는 중
         </Text>
 
-        <TouchableOpacity style={styles.midpointBtn} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.midpointBtn}
+          activeOpacity={0.85}
+          onPress={() =>
+            mapRef.current?.moveTo(center.lat, center.lng)
+          }
+        >
           <LinearGradient
             colors={[colors.pink, colors.pinkDeep]}
             start={{ x: 0, y: 0 }}
@@ -112,15 +234,21 @@ const LocationShare = ({ navigation }) => {
           <View style={styles.locationRow}>
             <Text style={styles.locationIcon}>📍</Text>
             <View style={styles.locationDetail}>
-              <Text style={styles.locationName}>예진 - 서울 마포구 연남동</Text>
-              <Text style={styles.locationTime}>3분 전 업데이트</Text>
+              <Text style={styles.locationName}>
+                예진 - 서울 마포구 {myArea}
+              </Text>
+              <Text style={styles.locationTime}>
+                {permissionGranted ? '방금 업데이트' : '위치 권한 필요'}
+              </Text>
             </View>
           </View>
           <View style={styles.divider} />
           <View style={styles.locationRow}>
             <Text style={styles.locationIcon}>📍</Text>
             <View style={styles.locationDetail}>
-              <Text style={styles.locationName}>지호 - 서울 마포구 홍대입구</Text>
+              <Text style={styles.locationName}>
+                지호 - 서울 마포구 {PARTNER_COORD.label}
+              </Text>
               <Text style={styles.locationTime}>1분 전 업데이트</Text>
             </View>
           </View>
@@ -131,86 +259,55 @@ const LocationShare = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bgApp,
-  },
-  mapArea: {
-    flex: 1,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  pinContainer: {
-    position: 'absolute',
-    alignItems: 'center',
-  },
-  myPin: {
-    left: 90,
-    top: 175,
-  },
-  partnerPin: {
-    left: 255,
-    top: 145,
-  },
-  pinDot: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  container: { flex: 1, backgroundColor: colors.bgApp },
+  mapArea: { flex: 1, position: 'relative', overflow: 'hidden' },
+
+  mapFallback: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#F0F4FF',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    paddingHorizontal: 32,
   },
-  pinEmoji: {
+  mapFallbackEmoji: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  mapFallbackTitle: {
     fontSize: 16,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  pinLabel: {
-    marginTop: 4,
-    fontSize: 12,
     fontWeight: '700',
     color: colors.ink,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
-    overflow: 'hidden',
+    marginBottom: 6,
   },
-  midpointHeart: {
-    position: 'absolute',
-    left: 182,
-    top: 178,
+  mapFallbackDesc: {
+    fontSize: 13,
+    color: colors.ink3,
+    textAlign: 'center',
+    lineHeight: 18,
   },
+
   zoomControls: {
     position: 'absolute',
     right: 16,
-    bottom: 16,
-    gap: 8,
+    bottom: 20,
+    gap: 10,
   },
-  zoomBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  fab: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(30,33,82,0.06)',
+    shadowColor: '#1E2152',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 6,
   },
-  zoomText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: colors.ink2,
-  },
+
   bottomSheet: {
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 28,
@@ -239,9 +336,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
   },
-  distanceHeart: {
-    color: colors.heartRed,
-  },
+  distanceHeart: { color: colors.heartRed },
   midpointBtn: {
     borderRadius: 16,
     overflow: 'hidden',
@@ -262,17 +357,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
   },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  locationIcon: {
-    fontSize: 18,
-    marginRight: 12,
-  },
-  locationDetail: {
-    flex: 1,
-  },
+  locationRow: { flexDirection: 'row', alignItems: 'center' },
+  locationIcon: { fontSize: 18, marginRight: 12 },
+  locationDetail: { flex: 1 },
   locationName: {
     fontSize: 14,
     fontWeight: '600',

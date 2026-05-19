@@ -1,20 +1,24 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   Animated,
   Dimensions,
+  Pressable,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
 import Heart from '../../components/common/Heart';
 import LovelyBackground from '../../components/common/LovelyBackground';
+import { useAuth } from '../../contexts/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 
-const SplashScreen = ({ navigation, route }) => {
-  const isAuthenticated = route?.params?.isAuthenticated ?? false;
+const SplashScreen = ({ navigation }) => {
+  const { hydrating, isAuthenticated, coupleConnected } = useAuth();
+  // useState로 두면 setState가 deps를 바꿔서 cleanup이 setTimeout을 취소함. useRef로 안전하게.
+  const autoRoutedRef = useRef(false);
 
   const fadeIn = useRef(new Animated.Value(0)).current;
   const taglineFade = useRef(new Animated.Value(0)).current;
@@ -70,14 +74,42 @@ const SplashScreen = ({ navigation, route }) => {
     shimmerDot(dotOpacity1, 0).start();
     shimmerDot(dotOpacity2, 300).start();
     shimmerDot(dotOpacity3, 600).start();
-
-    // Auto-navigate after 2 seconds
-    const timer = setTimeout(() => {
-      navigation.replace(isAuthenticated ? 'MainTabs' : 'Auth');
-    }, 2000);
-
-    return () => clearTimeout(timer);
   }, []);
+
+  // hydration이 끝나면 인증 상태에 따라 자동 분기:
+  // - 로그인 & 커플 연결 → MainTabs
+  // - 로그인 only → Auth(PartnerConnect)
+  // - 미인증 → 탭 대기 (아래 handleTap에서 Onboarding으로)
+  useEffect(() => {
+    if (hydrating || autoRoutedRef.current) return;
+    if (!isAuthenticated) return;
+    autoRoutedRef.current = true;
+
+    if (coupleConnected) {
+      setTimeout(() => navigation.replace('MainTabs'), 600);
+    } else {
+      setTimeout(() => {
+        navigation.reset({
+          index: 0,
+          routes: [
+            {
+              name: 'Auth',
+              state: {
+                index: 0,
+                routes: [{ name: 'PartnerConnect' }],
+              },
+            },
+          ],
+        });
+      }, 600);
+    }
+  }, [hydrating, isAuthenticated, coupleConnected, navigation]);
+
+  const handleTap = () => {
+    // 인증된 사용자는 자동 분기에 맡기고 탭 무시
+    if (hydrating || isAuthenticated) return;
+    navigation.replace('Auth', { screen: 'Onboarding' });
+  };
 
   const orbitRadius = 90;
 
@@ -135,8 +167,10 @@ const SplashScreen = ({ navigation, route }) => {
     );
   };
 
+  const showTapHint = !hydrating && !isAuthenticated;
+
   return (
-    <View style={styles.container}>
+    <Pressable style={styles.container} onPress={handleTap}>
       <LinearGradient
         colors={['#FFF5F8', '#FFE0EC', '#FFC8DD', '#FFD9E8', '#FFF0F5']}
         locations={[0, 0.25, 0.5, 0.75, 1]}
@@ -184,7 +218,13 @@ const SplashScreen = ({ navigation, route }) => {
         <Animated.View style={[styles.dot, { opacity: dotOpacity2 }]} />
         <Animated.View style={[styles.dot, { opacity: dotOpacity3 }]} />
       </View>
-    </View>
+
+      {showTapHint && (
+        <View style={styles.tapHint} pointerEvents="none">
+          <Text style={styles.tapHintText}>화면을 터치하여 시작하기</Text>
+        </View>
+      )}
+    </Pressable>
   );
 };
 
@@ -264,6 +304,16 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: colors.pink,
+  },
+  tapHint: {
+    position: 'absolute',
+    bottom: 110,
+  },
+  tapHintText: {
+    fontSize: 13,
+    color: colors.ink3,
+    fontWeight: '500',
+    opacity: 0.6,
   },
 });
 

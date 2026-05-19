@@ -2,6 +2,7 @@
   "expo": {
     "name": "Hear2",
     "slug": "hear2-app",
+    "scheme": "hear2",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./src/assets/icons/icon.png",
@@ -21,7 +22,22 @@
     },
     "plugins": [
       "expo-asset",
-      "expo-font"
-    ]
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Hear2가 연인과 위치를 공유하기 위해 위치 정보를 사용합니다."
+        }
+      ],
+      "expo-secure-store",
+      "expo-web-browser"
+    ],
+    "extra": {
+      "kakaoJsKey": "049cf3a09c10f8e430ed1acbc40fc588",
+      "apiBaseUrl": "https://hear2-be.onrender.com",
+      "aiBaseUrl": "https://hear2-be.onrender.com",
+      "wsBaseUrl": "wss://hear2-be.onrender.com",
+      "mockApi": false
+    }
   }
 }

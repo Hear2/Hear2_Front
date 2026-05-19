@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import HomeScreen from '../screens/home/HomeScreen';
 import ChatScreen from '../screens/chat/ChatScreen';
@@ -32,12 +33,25 @@ function HeartIcon({ focused }) {
   );
 }
 
+const TAB_CONTENT_HEIGHT = 64;
+const MIN_BOTTOM_PADDING = Platform.OS === 'ios' ? 8 : 10;
+
 export default function BottomTabNavigator() {
+  const insets = useSafeAreaInsets();
+  const bottomPad = Math.max(insets.bottom, MIN_BOTTOM_PADDING);
+
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarStyle: styles.tabBar,
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            height: TAB_CONTENT_HEIGHT + bottomPad,
+            paddingBottom: bottomPad,
+          },
+        ],
+        tabBarItemStyle: styles.tabItem,
         tabBarActiveTintColor: PINK,
         tabBarInactiveTintColor: INK_MUTE,
         tabBarLabelStyle: styles.tabLabel,
@@ -55,6 +69,8 @@ export default function BottomTabNavigator() {
         component={ChatScreen}
         options={{
           tabBarIcon: ({ focused }) => <TabIcon emoji="💬" focused={focused} />,
+          // 키보드가 뜨면 탭바를 자동으로 숨겨서, 입력 바가 키보드 바로 위에 붙도록 한다.
+          tabBarHideOnKeyboard: true,
         }}
       />
       <Tab.Screen
@@ -84,15 +100,18 @@ export default function BottomTabNavigator() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    height: 64,
     borderTopColor: '#E0E0E0',
     borderTopWidth: 1,
-    paddingBottom: 8,
     paddingTop: 6,
+    backgroundColor: '#FFFFFF',
+  },
+  tabItem: {
+    paddingVertical: 4,
   },
   tabLabel: {
     fontSize: 11,
     fontWeight: '600',
+    marginTop: 2,
   },
   iconWrap: {
     width: 56,

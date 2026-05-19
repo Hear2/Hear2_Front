@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,16 +9,34 @@ import {
   Share,
   Dimensions,
   Platform,
+  BackHandler,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Clipboard from 'expo-clipboard';
 import Svg, { Path } from 'react-native-svg';
 import colors from '../../constants/colors';
 import Heart from '../../components/common/Heart';
 import LovelyBackground from '../../components/common/LovelyBackground';
 import Header from '../../components/common/Header';
 import Button from '../../components/common/Button';
+import { useAuth } from '../../contexts/AuthContext';
+import {
+  createCoupleCode,
+  fetchCoupleStatus,
+} from '../../api/coupleAPI';
+import endpoints from '../../constants/endpoints';
+
+// 백엔드 커플 코드: 8자, [A-HJ-NP-Z2-9] (O/0/I/1 제외)
+const CODE_LENGTH = 8;
+const STATUS_POLL_INTERVAL_MS = 5000;
 
 const { width } = Dimensions.get('window');
+
+// 모드: 'select' (어떤 방식으로 진행할지 선택), 'create' (내 코드 발급), 'join' (받은 코드 입력)
+const MODE_SELECT = 'select';
+const MODE_CREATE = 'create';
+const MODE_JOIN = 'join';
 
 const CopyIcon = () => (
   <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
@@ -51,29 +69,190 @@ const ShareIcon = () => (
   </Svg>
 );
 
-const INVITE_CODE = ['L', 'O', 'V', 'E', '7', '7'];
+const padCode = (code) => {
+  const chars = (code ?? '').toUpperCase().split('');
+  while (chars.length < CODE_LENGTH) chars.push('');
+  return chars.slice(0, CODE_LENGTH);
+};
 
-const PartnerConnectScreen = ({ navigation }) => {
+const sanitizeInput = (raw) =>
+  (raw ?? '')
+    .toUpperCase()
+    .replace(/[^A-HJ-NP-Z2-9]/g, '')
+    .slice(0, CODE_LENGTH);
+
+const PartnerConnectScreen = ({ navigation, route }) => {
+  const wizardMode = !!route?.params?.wizardMode;
+  const [mode, setMode] = useState(MODE_SELECT);
   const [partnerCode, setPartnerCode] = useState('');
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState(null);
 
-  const handleCopy = () => {
-    // TODO: copy to clipboard
+  // 본인 코드 (OWNER일 때) — BE에서 받아옴
+  const [myCode, setMyCode] = useState(null);
+  const [initializing, setInitializing] = useState(true);
+  const [creatingCode, setCreatingCode] = useState(false);
+  const [codeError, setCodeError] = useState(null);
+
+  const { confirmPartner, refreshCoupleStatus, signOut } = useAuth();
+
+  // 커플 연결을 못 한 채 막혀버리는 경우를 위한 비상구.
+  // signOut으로 토큰을 비우고, AuthStack의 첫 화면(Onboarding)으로 리셋한다.
+  const handleSignOut = useCallback(async () => {
+    try {
+      await signOut();
+    } finally {
+      navigation.reset({ index: 0, routes: [{ name: 'Onboarding' }] });
+    }
+  }, [signOut, navigation]);
+  const pollRef = useRef(null);
+
+  // 화면 진입 시: 연결 상태만 확인. 자동 코드 발급은 하지 않는다.
+  // - connected → 메인 탭으로
+  // - 이미 발급해둔 본인 코드가 있으면 → 발급 모드로 복원
+  // - 그 외 → 선택 모드 유지
+  const checkStatus = useCallback(async () => {
+    setCodeError(null);
+    if (endpoints.MOCK) {
+      setInitializing(false);
+      return;
+    }
+    setInitializing(true);
+    try {
+      const status = await fetchCoupleStatus();
+      if (status?.connected) {
+        navigation
+          .getParent()
+          ?.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+        return;
+      }
+      if (status?.coupleCode) {
+        setMyCode(status.coupleCode);
+        setMode(MODE_CREATE);
+      }
+    } catch (err) {
+      setCodeError(err?.message || '상태를 확인하지 못했어요.');
+    } finally {
+      setInitializing(false);
+    }
+  }, [navigation]);
+
+  useEffect(() => {
+    checkStatus();
+  }, [checkStatus]);
+
+  // 본인 코드 발급 후, 파트너가 합류했는지 주기적으로 확인 (5초)
+  useEffect(() => {
+    if (endpoints.MOCK || !myCode) return undefined;
+    pollRef.current = setInterval(async () => {
+      const status = await refreshCoupleStatus();
+      if (status?.connected) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+        navigation
+          .getParent()
+          ?.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+      }
+    }, STATUS_POLL_INTERVAL_MS);
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [myCode, refreshCoupleStatus, navigation]);
+
+  // 회원가입 마지막 단계에선 back 허용. 로그인 후 미연결 진입(잠금 모드)에선 차단.
+  useEffect(() => {
+    if (wizardMode) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
+    return () => sub.remove();
+  }, [wizardMode]);
+
+  useEffect(() => {
+    if (wizardMode) {
+      navigation.setOptions?.({ gestureEnabled: true });
+    } else {
+      navigation.setOptions?.({ gestureEnabled: false, headerLeft: () => null });
+    }
+  }, [navigation, wizardMode]);
+
+  const handleSelectCreate = useCallback(async () => {
+    setCodeError(null);
+    if (endpoints.MOCK) {
+      setMyCode('LOVE7777');
+      setMode(MODE_CREATE);
+      return;
+    }
+    setCreatingCode(true);
+    try {
+      const created = await createCoupleCode();
+      setMyCode(created?.coupleCode ?? null);
+      setMode(MODE_CREATE);
+    } catch (err) {
+      setCodeError(err?.message || '초대 코드를 발급하지 못했어요.');
+    } finally {
+      setCreatingCode(false);
+    }
+  }, []);
+
+  const handleSelectJoin = useCallback(() => {
+    setError(null);
+    setMode(MODE_JOIN);
+  }, []);
+
+  const handleBackToSelect = useCallback(() => {
+    setError(null);
+    setPartnerCode('');
+    setMode(MODE_SELECT);
+  }, []);
+
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    if (!myCode) return;
+    try {
+      await Clipboard.setStringAsync(myCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      // 실패해도 사용자 흐름은 막지 않음
+    }
   };
 
   const handleShare = async () => {
+    if (!myCode) return;
     try {
       await Share.share({
-        message: `Hear2에서 함께해요! 초대 코드: ${INVITE_CODE.join('')}`,
+        message: `Hear2에서 함께해요! 초대 코드: ${myCode}`,
       });
     } catch (e) {
       // ignore
     }
   };
 
-  const handleConnect = () => {
-    // TODO: validate and connect partner
-    navigation.replace('Main');
+  const handleConnect = async () => {
+    if (connecting) return;
+    setError(null);
+    setConnecting(true);
+    try {
+      const res = await confirmPartner({ code: partnerCode });
+      if (!res?.ok) {
+        setError(res?.message || '연결에 실패했어요. 코드를 확인해주세요.');
+        return;
+      }
+      // 성공 — 루트로 reset해서 Auth 스택 전체 제거 + MainTabs로 진입
+      navigation
+        .getParent()
+        ?.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+    } catch (err) {
+      setError(err?.message || '연결 중 오류가 발생했어요.');
+    } finally {
+      setConnecting(false);
+    }
   };
+
+  const codeDisplay = padCode(myCode);
+  const canConnect = partnerCode.length === CODE_LENGTH;
 
   return (
     <View style={styles.container}>
@@ -87,11 +266,29 @@ const PartnerConnectScreen = ({ navigation }) => {
       <LovelyBackground intensity={0.6} hearts sparkles blobs />
 
       <Header
-        title="연결하기"
-        showBack
-        onBack={() => navigation.goBack()}
+        title={wizardMode ? '회원가입' : '연결하기'}
+        showBack={wizardMode}
+        onBack={wizardMode ? () => navigation.goBack() : undefined}
+        right={
+          wizardMode ? undefined : (
+            <TouchableOpacity onPress={handleSignOut} hitSlop={10}>
+              <Text style={styles.logoutText}>로그아웃</Text>
+            </TouchableOpacity>
+          )
+        }
         style={styles.header}
       />
+
+      {wizardMode && (
+        <View style={styles.progressWrap}>
+          <View style={styles.progressBar}>
+            <View style={[styles.progressSegment, styles.progressFilled]} />
+            <View style={[styles.progressSegment, styles.progressFilled]} />
+            <View style={[styles.progressSegment, styles.progressFilled]} />
+          </View>
+          <Text style={styles.progressLabel}>3 / 3 · 마지막 단계</Text>
+        </View>
+      )}
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -127,81 +324,210 @@ const PartnerConnectScreen = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Title */}
-        <Text style={styles.title}>연인을 초대해주세요</Text>
-        <Text style={styles.subtitle}>아래 코드를 공유하거나 직접 입력하세요</Text>
-
-        {/* Invite code card */}
-        <View style={styles.codeCard}>
-          <LinearGradient
-            colors={[colors.pinkTint, '#FFE8F0']}
-            style={StyleSheet.absoluteFillObject}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          />
-          <View style={styles.codeRow}>
-            {INVITE_CODE.map((char, index) => (
-              <View key={index} style={styles.codeBox}>
-                <Text style={styles.codeChar}>{char}</Text>
-              </View>
-            ))}
+        {initializing ? (
+          <View style={styles.initLoading}>
+            <ActivityIndicator color={colors.pink} />
+            <Text style={styles.initLoadingText}>잠시만요…</Text>
           </View>
-
-          {/* Copy + Share buttons */}
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={styles.copyBtn}
-              onPress={handleCopy}
-              activeOpacity={0.7}
-            >
-              <CopyIcon />
-              <Text style={styles.copyText}>복사하기</Text>
-            </TouchableOpacity>
+        ) : mode === MODE_SELECT ? (
+          <>
+            <Text style={styles.title}>연인과 어떻게 연결할까요?</Text>
+            <Text style={styles.subtitle}>
+              둘 중 한 명이 코드를 발급하고, 다른 한 명이 그 코드로 연결합니다
+            </Text>
 
             <TouchableOpacity
-              style={styles.shareBtn}
-              onPress={handleShare}
-              activeOpacity={0.7}
+              style={[styles.choiceCard, creatingCode && styles.choiceCardDisabled]}
+              onPress={creatingCode ? undefined : handleSelectCreate}
+              activeOpacity={0.85}
+              disabled={creatingCode}
             >
               <LinearGradient
-                colors={[colors.pink, colors.rose]}
-                style={styles.shareBtnGradient}
+                colors={[colors.pinkTint, '#FFE8F0']}
+                style={StyleSheet.absoluteFillObject}
                 start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-              >
-                <ShareIcon />
-                <Text style={styles.shareText}>공유하기</Text>
-              </LinearGradient>
+                end={{ x: 1, y: 1 }}
+              />
+              <View style={styles.choiceIconWrap}>
+                <Text style={styles.choiceIcon}>💌</Text>
+              </View>
+              <View style={styles.choiceTextWrap}>
+                <Text style={styles.choiceTitle}>커플 코드 발급하기</Text>
+                <Text style={styles.choiceDesc}>
+                  내가 코드를 만들어 연인에게 공유할게요
+                </Text>
+              </View>
+              {creatingCode && (
+                <ActivityIndicator color={colors.pink} style={styles.choiceSpinner} />
+              )}
             </TouchableOpacity>
-          </View>
-        </View>
 
-        {/* Or section */}
-        <View style={styles.dividerRow}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>또는 받은 코드 입력</Text>
-          <View style={styles.dividerLine} />
-        </View>
+            <TouchableOpacity
+              style={styles.choiceCard}
+              onPress={handleSelectJoin}
+              activeOpacity={0.85}
+            >
+              <LinearGradient
+                colors={['#EAF3FF', '#F5F9FF']}
+                style={StyleSheet.absoluteFillObject}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              />
+              <View style={[styles.choiceIconWrap, styles.choiceIconWrapBlue]}>
+                <Text style={styles.choiceIcon}>🔑</Text>
+              </View>
+              <View style={styles.choiceTextWrap}>
+                <Text style={styles.choiceTitle}>받은 코드 입력하기</Text>
+                <Text style={styles.choiceDesc}>
+                  연인이 보내준 코드로 연결할게요
+                </Text>
+              </View>
+            </TouchableOpacity>
 
-        {/* Partner code input */}
-        <View style={styles.inputWrapper}>
-          <TextInput
-            style={styles.input}
-            value={partnerCode}
-            onChangeText={setPartnerCode}
-            placeholder="초대 코드 입력"
-            placeholderTextColor={colors.inkMute}
-            maxLength={6}
-            autoCapitalize="characters"
-          />
-        </View>
+            {!!codeError && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{codeError}</Text>
+              </View>
+            )}
+          </>
+        ) : mode === MODE_CREATE ? (
+          <>
+            <Text style={styles.title}>연인을 초대해주세요</Text>
+            <Text style={styles.subtitle}>
+              아래 코드를 연인에게 공유해주세요
+            </Text>
 
-        {partnerCode.length === 6 && (
-          <Button
-            title="연결하기"
-            onPress={handleConnect}
-            style={styles.connectBtn}
-          />
+            <View style={styles.codeCard}>
+              <LinearGradient
+                colors={[colors.pinkTint, '#FFE8F0']}
+                style={StyleSheet.absoluteFillObject}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              />
+              {!myCode ? (
+                <View style={styles.codeLoading}>
+                  <ActivityIndicator color={colors.pink} />
+                  <Text style={styles.codeLoadingText}>초대 코드를 발급 중…</Text>
+                </View>
+              ) : codeError ? (
+                <View style={styles.codeErrorBox}>
+                  <Text style={styles.codeErrorText}>{codeError}</Text>
+                  <TouchableOpacity onPress={handleSelectCreate} hitSlop={8}>
+                    <Text style={styles.codeRetry}>다시 시도</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.codeRow}>
+                    {codeDisplay.map((char, index) => (
+                      <View key={index} style={styles.codeBox}>
+                        <Text style={styles.codeChar}>{char || ' '}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* Copy + Share buttons */}
+                  <View style={styles.actionRow}>
+                    <TouchableOpacity
+                      style={[styles.copyBtn, !myCode && styles.btnDisabled]}
+                      onPress={myCode ? handleCopy : undefined}
+                      activeOpacity={0.7}
+                      disabled={!myCode}
+                    >
+                      <CopyIcon />
+                      <Text style={styles.copyText}>
+                        {copied ? '복사됨 ✓' : '복사하기'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.shareBtn, !myCode && styles.btnDisabled]}
+                      onPress={myCode ? handleShare : undefined}
+                      activeOpacity={0.7}
+                      disabled={!myCode}
+                    >
+                      <LinearGradient
+                        colors={[colors.pink, colors.rose]}
+                        style={styles.shareBtnGradient}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                      >
+                        <ShareIcon />
+                        <Text style={styles.shareText}>공유하기</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+
+            <Text style={styles.waitingHint}>
+              연인이 코드를 입력하면 자동으로 연결돼요
+            </Text>
+
+            <TouchableOpacity
+              style={styles.altModeBtn}
+              onPress={handleBackToSelect}
+              hitSlop={8}
+            >
+              <Text style={styles.altModeText}>
+                다른 방법으로 연결하기
+              </Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Text style={styles.title}>받은 코드를 입력해주세요</Text>
+            <Text style={styles.subtitle}>
+              연인이 발급한 8자리 코드를 입력하세요
+            </Text>
+
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.input}
+                value={partnerCode}
+                onChangeText={(v) => setPartnerCode(sanitizeInput(v))}
+                placeholder="초대 코드 8자리"
+                placeholderTextColor={colors.inkMute}
+                maxLength={CODE_LENGTH}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                autoFocus
+              />
+            </View>
+
+            {!!error && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            )}
+
+            <View style={styles.connectBtnWrap}>
+              <Button
+                title={connecting ? '연결 중…' : '연결하기'}
+                onPress={connecting || !canConnect ? undefined : handleConnect}
+                style={[
+                  styles.connectBtn,
+                  (!canConnect || connecting) && styles.connectBtnDisabled,
+                ]}
+              />
+              {connecting && (
+                <View style={styles.connectSpinner} pointerEvents="none">
+                  <ActivityIndicator color="#FFFFFF" />
+                </View>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={styles.altModeBtn}
+              onPress={handleBackToSelect}
+              hitSlop={8}
+            >
+              <Text style={styles.altModeText}>
+                다른 방법으로 연결하기
+              </Text>
+            </TouchableOpacity>
+          </>
         )}
       </ScrollView>
 
@@ -222,6 +548,16 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: 'transparent',
   },
+  logoutText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.ink3 ?? '#888',
+  },
+  progressWrap: { paddingHorizontal: 24, paddingTop: 4, paddingBottom: 4 },
+  progressBar: { flexDirection: 'row', gap: 6 },
+  progressSegment: { flex: 1, height: 4, borderRadius: 2 },
+  progressFilled: { backgroundColor: colors.pink },
+  progressLabel: { marginTop: 6, fontSize: 12, color: colors.inkMute },
   scrollContent: {
     paddingHorizontal: 24,
     paddingTop: 8,
@@ -296,23 +632,83 @@ const styles = StyleSheet.create({
     color: colors.ink3,
     textAlign: 'center',
     marginBottom: 28,
+    lineHeight: 20,
+  },
+  initLoading: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    gap: 12,
+  },
+  initLoadingText: {
+    fontSize: 13,
+    color: colors.ink3,
+  },
+  choiceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 20,
+    padding: 20,
+    overflow: 'hidden',
+    marginBottom: 14,
+    minHeight: 96,
+  },
+  choiceCardDisabled: {
+    opacity: 0.65,
+  },
+  choiceIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+    shadowColor: colors.pink,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  choiceIconWrapBlue: {
+    shadowColor: colors.blue,
+  },
+  choiceIcon: {
+    fontSize: 28,
+  },
+  choiceTextWrap: {
+    flex: 1,
+  },
+  choiceTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: colors.ink,
+    marginBottom: 4,
+  },
+  choiceDesc: {
+    fontSize: 13,
+    color: colors.ink3,
+    lineHeight: 18,
+  },
+  choiceSpinner: {
+    marginLeft: 8,
   },
   codeCard: {
     borderRadius: 20,
     padding: 24,
     overflow: 'hidden',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   codeRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
     marginBottom: 20,
   },
   codeBox: {
-    width: 44,
+    width: 36,
     height: 52,
-    borderRadius: 12,
+    borderRadius: 10,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -323,10 +719,40 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   codeChar: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     color: colors.ink,
     fontFamily: Platform?.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  codeLoading: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 28,
+    gap: 10,
+  },
+  codeLoadingText: {
+    fontSize: 13,
+    color: colors.ink3,
+  },
+  codeErrorBox: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    gap: 8,
+  },
+  codeErrorText: {
+    fontSize: 13,
+    color: colors.heartRed,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  codeRetry: {
+    fontSize: 13,
+    color: colors.pink,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
+  btnDisabled: {
+    opacity: 0.5,
   },
   actionRow: {
     flexDirection: 'row',
@@ -367,20 +793,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.line,
-  },
-  dividerText: {
-    marginHorizontal: 14,
+  waitingHint: {
     fontSize: 13,
-    color: colors.inkMute,
+    color: colors.ink3,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  altModeBtn: {
+    alignSelf: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginTop: 6,
+  },
+  altModeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.pink,
+    textDecorationLine: 'underline',
   },
   inputWrapper: {
     backgroundColor: '#FFFFFF',
@@ -395,10 +824,37 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.ink,
     textAlign: 'center',
-    letterSpacing: 8,
+    letterSpacing: 6,
+    fontFamily: Platform?.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  connectBtnWrap: {
+    position: 'relative',
+    marginTop: 16,
   },
   connectBtn: {
-    marginTop: 16,
+    marginTop: 0,
+  },
+  connectBtnDisabled: {
+    opacity: 0.7,
+  },
+  connectSpinner: {
+    position: 'absolute',
+    right: 18,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+  },
+  errorBox: {
+    marginTop: 12,
+    backgroundColor: '#FFF0F2',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  errorText: {
+    fontSize: 13,
+    color: colors.heartRed,
+    textAlign: 'center',
   },
   bottomNote: {
     position: 'absolute',

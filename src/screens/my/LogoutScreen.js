@@ -1,17 +1,44 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   Pressable,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import colors from '../../constants/colors';
+import { useAuth } from '../../contexts/AuthContext';
 
 const LogoutScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const dismiss = () => navigation?.goBack();
+  const { signOut, user } = useAuth();
+  const [signingOut, setSigningOut] = useState(false);
+
+  const dismiss = () => {
+    if (!signingOut) navigation?.goBack();
+  };
+
+  const handleConfirm = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await signOut();
+    } catch {
+      // signOut 실패해도 화면은 닫고 로그인으로 이동
+    }
+    // LogoutScreen은 RootNavigator 직속 modal이라 navigation === root.
+    // getParent() 호출 시 undefined가 돼서 reset이 안 되므로 직접 호출.
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Auth', params: { screen: 'Login' } }],
+    });
+  };
+
+  const accountLabel = user?.email
+    ? `${user?.nickname ?? user.email} · ${user.email}`
+    : '예진 · yejin@hear2.app';
 
   return (
     <View style={styles.container}>
@@ -32,9 +59,11 @@ const LogoutScreen = ({ navigation }) => {
 
         <View style={styles.accountRow}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>예</Text>
+            <Text style={styles.avatarText}>
+              {(user?.nickname?.[0] ?? '예').toUpperCase()}
+            </Text>
           </View>
-          <Text style={styles.accountText}>예진 · yejin@hear2.app</Text>
+          <Text style={styles.accountText}>{accountLabel}</Text>
         </View>
 
         <View style={styles.actions}>
@@ -42,15 +71,21 @@ const LogoutScreen = ({ navigation }) => {
             style={[styles.btn, styles.cancelBtn]}
             activeOpacity={0.85}
             onPress={dismiss}
+            disabled={signingOut}
           >
             <Text style={styles.cancelText}>취소</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.btn, styles.confirmBtn]}
             activeOpacity={0.85}
-            onPress={dismiss}
+            onPress={handleConfirm}
+            disabled={signingOut}
           >
-            <Text style={styles.confirmText}>로그아웃</Text>
+            {signingOut ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.confirmText}>로그아웃</Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>

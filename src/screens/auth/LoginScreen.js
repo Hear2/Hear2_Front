@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,35 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Path, Circle } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
+import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
+import * as AuthSession from 'expo-auth-session';
 import colors from '../../constants/colors';
 import Heart from '../../components/common/Heart';
 import Button from '../../components/common/Button';
+import {
+  login as loginRequest,
+  loginWithGoogle as loginWithGoogleRequest,
+  loginWithKakao as loginWithKakaoRequest,
+} from '../../api/authAPI';
+import { useAuth } from '../../contexts/AuthContext';
+import endpoints from '../../constants/endpoints';
+
+// OAuth 결과를 받기 위해 웹 브라우저 세션을 마무리.
+WebBrowser.maybeCompleteAuthSession();
+
+const GOOGLE_OAUTH_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_ID;
+const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY;
+const KAKAO_AUTH_URL = 'https://kauth.kakao.com/oauth/authorize';
+const KAKAO_TOKEN_URL = 'https://kauth.kakao.com/oauth/token';
+
+// Expo Go에서 OAuth 동작을 위한 프록시 URL.
+// Google/Kakao 콘솔 모두에 이 URL을 redirect URI로 등록해야 함.
+// 프로덕션(dev client 또는 standalone)에서는 scheme=hear2 기반 URL 사용 권장.
+const EXPO_AUTH_PROXY_URL = 'https://auth.expo.io/@anonymous/hear2-app';
 
 const GoogleIcon = () => (
   <Svg width={20} height={20} viewBox="0 0 24 24">
@@ -56,10 +79,186 @@ const LoginScreen = ({ navigation }) => {
   const [password, setPassword] = useState('');
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(null); // 'google' | 'kakao' | null
+  const [error, setError] = useState(null);
+  const { signIn, loadMe } = useAuth();
 
-  const handleLogin = () => {
-    // TODO: implement login logic
-    navigation.replace('Main');
+  // Google OAuth: id_token 흐름 (백엔드 GoogleOAuthLoginRequest에 idToken 필드)
+  // Expo Go에서는 프록시 URL을 redirectUri로 사용
+  const [googleRequest, googleResponse, promptGoogle] = Google.useAuthRequest({
+    clientId: GOOGLE_OAUTH_CLIENT_ID,
+    scopes: ['openid', 'profile', 'email'],
+    redirectUri: EXPO_AUTH_PROXY_URL,
+  });
+
+  // Kakao OAuth: REST 흐름. 프록시 URL 사용 (Kakao 콘솔에 등록 필요).
+  const kakaoRedirectUri = EXPO_AUTH_PROXY_URL;
+
+  const routeAfterSignIn = (connected) => {
+    if (connected) {
+      navigation
+        .getParent()
+        ?.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+    } else {
+      // 같은 Auth 스택 안에서 연결 화면으로 이동 — 연결 성공 전엔 이탈 불가
+      navigation.replace('PartnerConnect');
+    }
+  };
+
+  // Google 응답 처리: id_token이 들어오면 백엔드로 전달
+  useEffect(() => {
+    if (!googleResponse) return;
+    if (googleResponse.type !== 'success') {
+      if (googleResponse.type === 'error') {
+        setError(googleResponse.error?.message || 'Google 로그인이 실패했어요.');
+      }
+      setOauthLoading(null);
+      return;
+    }
+    const idToken =
+      googleResponse.authentication?.idToken ?? googleResponse.params?.id_token;
+    if (!idToken) {
+      setError('Google ID 토큰을 받지 못했어요.');
+      setOauthLoading(null);
+      return;
+    }
+    (async () => {
+      try {
+        const res = await loginWithGoogleRequest({ idToken });
+        await signIn({
+          accessToken: res?.accessToken,
+          refreshToken: res?.refreshToken,
+          user: res?.user,
+        });
+        const me = await loadMe?.();
+        routeAfterSignIn(!!me?.coupleId || !!res?.user?.coupleId);
+      } catch (err) {
+        setError(err?.message || 'Google 로그인이 실패했어요.');
+      } finally {
+        setOauthLoading(null);
+      }
+    })();
+  }, [googleResponse]);
+
+  const handleGoogleLogin = async () => {
+    if (oauthLoading) return;
+    setError(null);
+    if (!googleRequest) {
+      setError('Google 로그인을 준비 중이에요. 잠시 후 다시 시도해주세요.');
+      return;
+    }
+    setOauthLoading('google');
+    await promptGoogle();
+  };
+
+  const handleKakaoLogin = async () => {
+    if (oauthLoading) return;
+    setError(null);
+    if (!KAKAO_REST_API_KEY) {
+      setError('Kakao 설정이 누락됐어요.');
+      return;
+    }
+    setOauthLoading('kakao');
+    try {
+      // 1) authorize → code
+      const authUrl =
+        `${KAKAO_AUTH_URL}?response_type=code` +
+        `&client_id=${encodeURIComponent(KAKAO_REST_API_KEY)}` +
+        `&redirect_uri=${encodeURIComponent(kakaoRedirectUri)}`;
+      const result = await WebBrowser.openAuthSessionAsync(
+        authUrl,
+        kakaoRedirectUri,
+      );
+      if (result.type !== 'success' || !result.url) {
+        if (result.type === 'cancel' || result.type === 'dismiss') {
+          // 사용자 취소 — 에러 표기 안 함
+        } else {
+          setError('카카오 로그인이 실패했어요.');
+        }
+        return;
+      }
+      const codeMatch = result.url.match(/[?&]code=([^&]+)/);
+      const code = codeMatch ? decodeURIComponent(codeMatch[1]) : null;
+      if (!code) {
+        setError('카카오 인가 코드를 받지 못했어요.');
+        return;
+      }
+      // 2) code → access_token (Kakao token endpoint 직접 호출)
+      const body =
+        `grant_type=authorization_code` +
+        `&client_id=${encodeURIComponent(KAKAO_REST_API_KEY)}` +
+        `&redirect_uri=${encodeURIComponent(kakaoRedirectUri)}` +
+        `&code=${encodeURIComponent(code)}`;
+      const tokenRes = await fetch(KAKAO_TOKEN_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+        },
+        body,
+      });
+      const tokenJson = await tokenRes.json();
+      if (!tokenRes.ok || !tokenJson?.access_token) {
+        setError(
+          tokenJson?.error_description ||
+            '카카오 토큰을 받지 못했어요.',
+        );
+        return;
+      }
+      // 3) 백엔드에 access_token 전달
+      const res = await loginWithKakaoRequest({
+        accessToken: tokenJson.access_token,
+      });
+      await signIn({
+        accessToken: res?.accessToken,
+        refreshToken: res?.refreshToken,
+        user: res?.user,
+      });
+      const me = await loadMe?.();
+      routeAfterSignIn(!!me?.coupleId || !!res?.user?.coupleId);
+    } catch (err) {
+      setError(err?.message || '카카오 로그인이 실패했어요.');
+    } finally {
+      setOauthLoading(null);
+    }
+  };
+
+  const handleLogin = async () => {
+    if (loading) return;
+    setError(null);
+
+    // MOCK 모드면 즉시 통과 (백엔드 실서버 전 임시)
+    if (endpoints.MOCK) {
+      // MOCK 로그인은 항상 "미연결" 상태로 시작 — 연결 흐름 테스트 가능
+      await signIn({
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+        user: { email, nickname: '예진' /* coupleId 없음 → 미연결 */ },
+      });
+      routeAfterSignIn(false);
+      return;
+    }
+
+    if (!email || !password) {
+      setError('이메일과 비밀번호를 입력해주세요.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await loginRequest({ email, password });
+      await signIn({
+        accessToken: res?.accessToken,
+        refreshToken: res?.refreshToken,
+      });
+      // 토큰 저장 후 /me로 프로필 동기화 — coupleId 여부로 분기
+      const me = await loadMe?.();
+      routeAfterSignIn(!!me?.coupleId);
+    } catch (err) {
+      setError(err?.message || '로그인에 실패했어요.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -125,8 +324,26 @@ const LoginScreen = ({ navigation }) => {
           </View>
         </View>
 
+        {/* Error */}
+        {!!error && (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
         {/* Login Button */}
-        <Button title="로그인" onPress={handleLogin} style={styles.loginBtn} />
+        <View style={styles.loginBtnWrap}>
+          <Button
+            title={loading ? '로그인 중…' : '로그인'}
+            onPress={loading ? undefined : handleLogin}
+            style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
+          />
+          {loading && (
+            <View style={styles.loginSpinner} pointerEvents="none">
+              <ActivityIndicator color="#FFFFFF" />
+            </View>
+          )}
+        </View>
 
         {/* Divider */}
         <View style={styles.dividerRow}>
@@ -136,25 +353,53 @@ const LoginScreen = ({ navigation }) => {
         </View>
 
         {/* Social Buttons */}
-        <TouchableOpacity style={styles.socialBtnGoogle} activeOpacity={0.8}>
-          <GoogleIcon />
-          <Text style={styles.socialTextDark}>Google로 계속하기</Text>
+        <TouchableOpacity
+          style={[
+            styles.socialBtnGoogle,
+            oauthLoading === 'google' && styles.socialBtnLoading,
+          ]}
+          activeOpacity={0.8}
+          onPress={oauthLoading ? undefined : handleGoogleLogin}
+          disabled={!!oauthLoading}
+        >
+          {oauthLoading === 'google' ? (
+            <ActivityIndicator color={colors.ink} />
+          ) : (
+            <>
+              <GoogleIcon />
+              <Text style={styles.socialTextDark}>Google로 계속하기</Text>
+            </>
+          )}
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.socialBtnApple} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.socialBtnApple} activeOpacity={0.8} disabled>
           <AppleIcon />
           <Text style={styles.socialTextLight}>Apple로 계속하기</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.socialBtnKakao} activeOpacity={0.8}>
-          <KakaoIcon />
-          <Text style={styles.socialTextDark}>카카오로 계속하기</Text>
+        <TouchableOpacity
+          style={[
+            styles.socialBtnKakao,
+            oauthLoading === 'kakao' && styles.socialBtnLoading,
+          ]}
+          activeOpacity={0.8}
+          onPress={oauthLoading ? undefined : handleKakaoLogin}
+          disabled={!!oauthLoading}
+        >
+          {oauthLoading === 'kakao' ? (
+            <ActivityIndicator color={colors.ink} />
+          ) : (
+            <>
+              <KakaoIcon />
+              <Text style={styles.socialTextDark}>카카오로 계속하기</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         {/* Sign up link */}
         <View style={styles.signupRow}>
           <Text style={styles.signupLabel}>처음이신가요? </Text>
-          <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
+          <TouchableOpacity onPress={() => navigation.navigate('SignupStep1')}>
             <Text style={styles.signupLink}>회원가입</Text>
           </TouchableOpacity>
         </View>
@@ -224,8 +469,33 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.ink,
   },
-  loginBtn: {
+  loginBtnWrap: {
+    position: 'relative',
     marginBottom: 24,
+  },
+  loginBtn: {
+    marginBottom: 0,
+  },
+  loginBtnDisabled: {
+    opacity: 0.7,
+  },
+  loginSpinner: {
+    position: 'absolute',
+    right: 18,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+  },
+  errorBox: {
+    backgroundColor: '#FFF0F2',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+  },
+  errorText: {
+    fontSize: 13,
+    color: colors.heartRed,
   },
   dividerRow: {
     flexDirection: 'row',
@@ -273,6 +543,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE500',
     marginBottom: 24,
     gap: 10,
+  },
+  socialBtnLoading: {
+    opacity: 0.7,
   },
   socialTextDark: {
     fontSize: 15,

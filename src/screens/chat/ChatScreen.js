@@ -1,61 +1,177 @@
-import React from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
+  Image,
+  Modal,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
   TextInput,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
 import Chip from '../../components/common/Chip';
+import endpoints from '../../constants/endpoints';
+import {
+  fetchMessages,
+  sendMediaMessage,
+  sendTextMessage,
+  uploadChatMedia,
+} from '../../api/chatAPI';
+import { useAuth } from '../../contexts/AuthContext';
 
-const VOICE_BAR_HEIGHTS = [
-  6, 14, 10, 18, 22, 14, 8, 16, 20, 24, 18, 12,
-  8, 14, 22, 18,
-];
+const POLL_INTERVAL_MS = 3000;
 
-const messages = [
-  {
-    id: 1,
-    from: 'them',
-    text: '오늘 뭐 먹을까요? 🍕',
-    mood: 'pos',
-    moodPct: 82,
-    moodColor: colors.green,
-    moodLabel: '긍정 82%',
-  },
-  {
-    id: 2,
-    from: 'me',
-    text: '파스타 어때? 맛집 찾았어!',
-    mood: 'pos',
-    moodPct: 91,
-    moodColor: colors.green,
-    moodLabel: '긍정 91%',
-  },
-  {
-    id: 3,
-    from: 'them',
-    text: '거기 웨이팅 길잖아',
-    mood: 'neutral',
-    moodPct: 45,
-    moodColor: colors.yellow,
-    moodLabel: '중립 45%',
-  },
-  {
-    id: 4,
-    from: 'me',
-    text: '예약하면 되잖아.\n왜 맨날 부정적이야?',
-    mood: 'neg',
-    moodPct: 72,
-    moodColor: colors.pink,
-    moodLabel: '부정 72%',
-  },
-];
+// BE가 반환한 mediaUrl이 상대 경로(/uploads/...)면 BASE_URL을 붙여 절대 URL로 변환.
+const absoluteMediaUrl = (url) => {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${endpoints.BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
+// 감정 → 색상/라벨 매핑. emotionType이 있으면 채워서, 없으면 null 반환.
+const moodFromEmotion = (msg) => {
+  if (!msg?.emotionType) return null;
+  const pct = Math.round((msg.emotionScore ?? 0) * 100);
+  const map = {
+    HAPPY: { color: colors.green, label: `긍정 ${pct}%` },
+    SAD: { color: colors.blue, label: `슬픔 ${pct}%` },
+    ANGRY: { color: colors.pink, label: `분노 ${pct}%` },
+    ANXIOUS: { color: colors.yellow, label: `불안 ${pct}%` },
+    NEUTRAL: { color: colors.inkMute, label: `중립 ${pct}%` },
+  };
+  return map[msg.emotionType] ?? null;
+};
+
+const formatHHMM = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
 
 const ChatScreen = ({ navigation }) => {
+  const { user } = useAuth();
+  // /auth/me 응답이 user.id로 올 수도 있어 둘 다 허용. 비교는 숫자로 강제.
+  const rawMyId = user?.userId ?? user?.id ?? null;
+  const myId = rawMyId != null ? Number(rawMyId) : null;
+
+  const [messages, setMessages] = useState([]);
+  const [draft, setDraft] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null); // 이미지 풀스크린 미리보기
+
+  const scrollRef = useRef(null);
+  const pollRef = useRef(null);
+  const lastIdRef = useRef(0);
+
+  const scrollToEnd = useCallback(() => {
+    setTimeout(() => scrollRef.current?.scrollToEnd?.({ animated: true }), 50);
+  }, []);
+
+  const loadMessages = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
+    try {
+      const list = await fetchMessages();
+      const arr = Array.isArray(list) ? list : [];
+      setMessages(arr);
+      const lastId = arr.length ? arr[arr.length - 1].id : 0;
+      if (lastId > lastIdRef.current) {
+        lastIdRef.current = lastId;
+        scrollToEnd();
+      }
+      setError(null);
+    } catch (err) {
+      if (!silent) setError(err?.message || '메시지를 불러오지 못했어요.');
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [scrollToEnd]);
+
+  useEffect(() => {
+    loadMessages();
+    pollRef.current = setInterval(() => loadMessages({ silent: true }), POLL_INTERVAL_MS);
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [loadMessages]);
+
+  const handleSend = async () => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
+    try {
+      const sent = await sendTextMessage({ content: text });
+      setDraft('');
+      // 응답 메시지를 즉시 추가 (낙관적 UI). 다음 폴링이 동일 id로 덮어쓰기.
+      if (sent?.id) {
+        setMessages((prev) => [...prev, sent]);
+        lastIdRef.current = sent.id;
+        scrollToEnd();
+      } else {
+        await loadMessages({ silent: true });
+      }
+    } catch (err) {
+      setError(err?.message || '메시지 전송에 실패했어요.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // 이미지 선택 → /chats/media 업로드 → IMAGE 메시지 전송.
+  // BE 제한: jpg/jpeg/png/webp, 최대 10MB.
+  const handlePickMedia = async () => {
+    if (uploading || sending) return;
+    setError(null);
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        setError('사진 접근 권한이 필요해요.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.85,
+        allowsMultipleSelection: false,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+
+      setUploading(true);
+      const uploaded = await uploadChatMedia(asset);
+      const sent = await sendMediaMessage({
+        messageType: uploaded.messageType ?? 'IMAGE',
+        mediaUrl: uploaded.mediaUrl,
+        originalFileName: uploaded.originalFileName,
+        mediaContentType: uploaded.mediaContentType,
+        mediaSize: uploaded.mediaSize,
+        content: '',
+      });
+      if (sent?.id) {
+        setMessages((prev) => [...prev, sent]);
+        lastIdRef.current = sent.id;
+        scrollToEnd();
+      } else {
+        await loadMessages({ silent: true });
+      }
+    } catch (err) {
+      setError(err?.message || '사진 업로드에 실패했어요.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Chat Header */}
@@ -73,7 +189,21 @@ const ChatScreen = ({ navigation }) => {
           </View>
         </View>
         <TouchableOpacity
-          onPress={() => navigation?.navigate('AIJudgeModal')}
+          onPress={() => {
+            // 가장 최근 judgeAvailable=true 메시지 찾음. 없으면 마지막 메시지로 시도.
+            // BE는 negativeScore>=0.7 또는 riskLevel>=WARNING인 메시지만 허용 → 그 외엔 400.
+            const triggerable = [...messages].reverse().find((m) => m.judgeAvailable);
+            const triggerMessageId =
+              triggerable?.id ?? messages[messages.length - 1]?.id ?? null;
+            if (!triggerMessageId) {
+              setError('아직 대화가 없어요.');
+              return;
+            }
+            navigation?.navigate('AIJudgeModal', {
+              triggerMessageId,
+              myId,
+            });
+          }}
           activeOpacity={0.7}
           hitSlop={8}
         >
@@ -81,119 +211,189 @@ const ChatScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.chatBody} contentContainerStyle={styles.chatContent}>
-        {/* Date Divider */}
-        <View style={styles.dateDivider}>
-          <View style={styles.dateLine} />
-          <Text style={styles.dateText}>오늘</Text>
-          <View style={styles.dateLine} />
-        </View>
-
-        {/* Messages */}
-        {messages.map((msg) => {
-          const isMe = msg.from === 'me';
-          return (
-            <View
-              key={msg.id}
-              style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem]}
-            >
-              {!isMe && (
-                <View style={styles.msgAvatar}>
-                  <Text style={styles.msgAvatarText}>예</Text>
-                </View>
-              )}
-              <View style={styles.msgGroup}>
-                {isMe ? (
-                  <LinearGradient
-                    colors={[colors.pink, colors.pinkSoft]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[styles.bubble, styles.bubbleMe]}
-                  >
-                    <Text style={[styles.bubbleText, styles.bubbleTextMe]}>
-                      {msg.text}
-                    </Text>
-                  </LinearGradient>
-                ) : (
-                  <View style={[styles.bubble, styles.bubbleThem]}>
-                    <Text style={styles.bubbleText}>{msg.text}</Text>
-                  </View>
-                )}
-                <View style={[styles.moodChipWrap, isMe && { alignSelf: 'flex-end' }]}>
-                  <View style={[styles.moodChip, { backgroundColor: msg.moodColor + '20' }]}>
-                    <View style={[styles.moodDot, { backgroundColor: msg.moodColor }]} />
-                    <Text style={[styles.moodChipText, { color: msg.moodColor }]}>
-                      {msg.moodLabel}
-                    </Text>
-                  </View>
-                </View>
-              </View>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
+      >
+        <ScrollView
+          ref={scrollRef}
+          style={styles.chatBody}
+          contentContainerStyle={styles.chatContent}
+          onContentSizeChange={scrollToEnd}
+        >
+          {loading && messages.length === 0 ? (
+            <View style={styles.centerEmpty}>
+              <ActivityIndicator color={colors.pink} />
             </View>
-          );
-        })}
-
-        {/* Warning Banner */}
-        <View style={styles.warningBanner}>
-          <Text style={styles.warningText}>⚠ 부정 감정이 증가 중이에요</Text>
-          <TouchableOpacity
-            style={styles.warningBtn}
-            onPress={() => navigation?.navigate('AIJudgeModal')}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.warningBtnText}>AI 판사 호출</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Voice Message */}
-        <View style={[styles.msgRow, styles.msgRowMe]}>
-          <View style={styles.msgGroup}>
-            <LinearGradient
-              colors={[colors.pink, colors.pinkSoft]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.voiceBubble}
-            >
-              <TouchableOpacity hitSlop={6} style={styles.voicePlayBtn}>
-                <Text style={styles.voicePlayIcon}>▶</Text>
-              </TouchableOpacity>
-              <View style={styles.voiceWaveform}>
-                {VOICE_BAR_HEIGHTS.map((h, i) => (
-                  <View
-                    key={i}
-                    style={[styles.voiceWaveBar, { height: h }]}
-                  />
-                ))}
+          ) : messages.length === 0 ? (
+            <View style={styles.centerEmpty}>
+              <Text style={styles.emptyText}>첫 메시지를 보내보세요 💌</Text>
+            </View>
+          ) : (
+            <>
+              {/* Date Divider */}
+              <View style={styles.dateDivider}>
+                <View style={styles.dateLine} />
+                <Text style={styles.dateText}>오늘</Text>
+                <View style={styles.dateLine} />
               </View>
-              <Text style={styles.voiceDuration}>0:08</Text>
-            </LinearGradient>
+
+              {/* Messages */}
+              {messages.map((msg) => {
+                const isMe = myId != null && Number(msg.senderId) === myId;
+                const mood = moodFromEmotion(msg);
+                const isImage = msg.messageType === 'IMAGE';
+                const isVideo = msg.messageType === 'VIDEO';
+                const mediaSrc = absoluteMediaUrl(msg.mediaUrl);
+                return (
+                  <View
+                    key={msg.id}
+                    style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem]}
+                  >
+                    {!isMe && (
+                      <View style={styles.msgAvatar}>
+                        <Text style={styles.msgAvatarText}>지</Text>
+                      </View>
+                    )}
+                    <View style={styles.msgGroup}>
+                      {isImage && mediaSrc ? (
+                        <TouchableOpacity
+                          activeOpacity={0.85}
+                          onPress={() => setPreviewUrl(mediaSrc)}
+                        >
+                          <Image
+                            source={{ uri: mediaSrc }}
+                            style={styles.imageBubble}
+                            resizeMode="cover"
+                          />
+                        </TouchableOpacity>
+                      ) : isVideo && mediaSrc ? (
+                        <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
+                          <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
+                            🎬 {msg.originalFileName || '동영상'}
+                          </Text>
+                        </View>
+                      ) : isMe ? (
+                        <LinearGradient
+                          colors={[colors.pink, colors.pinkSoft]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={[styles.bubble, styles.bubbleMe]}
+                        >
+                          <Text style={[styles.bubbleText, styles.bubbleTextMe]}>
+                            {msg.content}
+                          </Text>
+                        </LinearGradient>
+                      ) : (
+                        <View style={[styles.bubble, styles.bubbleThem]}>
+                          <Text style={styles.bubbleText}>{msg.content}</Text>
+                        </View>
+                      )}
+                      <View
+                        style={[
+                          styles.metaRow,
+                          isMe && { alignSelf: 'flex-end' },
+                        ]}
+                      >
+                        {!!mood && (
+                          <View
+                            style={[
+                              styles.moodChip,
+                              { backgroundColor: mood.color + '20' },
+                            ]}
+                          >
+                            <View
+                              style={[styles.moodDot, { backgroundColor: mood.color }]}
+                            />
+                            <Text
+                              style={[styles.moodChipText, { color: mood.color }]}
+                            >
+                              {msg.emotionEmoji ? msg.emotionEmoji + ' ' : ''}
+                              {mood.label}
+                            </Text>
+                          </View>
+                        )}
+                        <Text style={styles.timeText}>{formatHHMM(msg.createdAt)}</Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+
+              <View style={{ height: 16 }} />
+            </>
+          )}
+
+          {!!error && (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Input Bar */}
+        <View style={styles.inputBar}>
+          <TouchableOpacity
+            style={[styles.plusBtn, (uploading || sending) && styles.sendBtnDisabled]}
+            onPress={handlePickMedia}
+            disabled={uploading || sending}
+            hitSlop={6}
+          >
+            {uploading ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.plusBtnText}>+</Text>
+            )}
+          </TouchableOpacity>
+          <View style={styles.inputWrap}>
+            <TextInput
+              style={styles.textInput}
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="메시지 입력..."
+              placeholderTextColor={colors.inkMute}
+              multiline
+              editable={!sending}
+              onSubmitEditing={handleSend}
+              blurOnSubmit={false}
+            />
           </View>
-        </View>
-
-        <View style={{ height: 16 }} />
-      </ScrollView>
-
-      {/* Input Bar */}
-      <View style={styles.inputBar}>
-        <TouchableOpacity style={styles.plusBtn}>
-          <Text style={styles.plusBtnText}>+</Text>
-        </TouchableOpacity>
-        <View style={styles.inputWrap}>
-          <TextInput
-            style={styles.textInput}
-            placeholder="메시지 입력..."
-            placeholderTextColor={colors.inkMute}
-          />
-          <TouchableOpacity style={styles.inputIcon}>
-            <Text style={styles.inputIconText}>📷</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.inputIcon}>
-            <Text style={styles.inputIconText}>🎤</Text>
+          <TouchableOpacity
+            style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnDisabled]}
+            onPress={handleSend}
+            disabled={!draft.trim() || sending}
+          >
+            {sending ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.sendBtnText}>↑</Text>
+            )}
           </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.sendBtn}>
-          <Text style={styles.sendBtnText}>↑</Text>
+      </KeyboardAvoidingView>
+
+      {/* 이미지 풀스크린 미리보기 */}
+      <Modal
+        visible={!!previewUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewUrl(null)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.previewBackdrop}
+          onPress={() => setPreviewUrl(null)}
+        >
+          {!!previewUrl && (
+            <Image
+              source={{ uri: previewUrl }}
+              style={styles.previewImage}
+              resizeMode="contain"
+            />
+          )}
         </TouchableOpacity>
-      </View>
+      </Modal>
     </View>
   );
 };
@@ -332,8 +532,56 @@ const styles = StyleSheet.create({
   bubbleTextMe: {
     color: '#FFFFFF',
   },
-  moodChipWrap: {
+  imageBubble: {
+    width: 220,
+    height: 220,
+    borderRadius: 18,
+    backgroundColor: colors.bgSoft,
+  },
+  previewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     marginTop: 4,
+  },
+  timeText: {
+    fontSize: 10,
+    color: colors.inkMute,
+  },
+  centerEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 80,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: colors.ink3,
+  },
+  errorBox: {
+    marginTop: 12,
+    backgroundColor: '#FFF0F2',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  errorText: {
+    fontSize: 12,
+    color: colors.heartRed,
+    fontWeight: '600',
+  },
+  sendBtnDisabled: {
+    opacity: 0.4,
   },
   moodChip: {
     flexDirection: 'row',
@@ -382,50 +630,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
-  },
-  // Voice Message
-  voiceBubble: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 22,
-    borderTopRightRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minWidth: 200,
-  },
-  voicePlayBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  voicePlayIcon: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    marginLeft: 2,
-  },
-  voiceWaveform: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 28,
-    marginRight: 10,
-    overflow: 'hidden',
-  },
-  voiceWaveBar: {
-    width: 2.5,
-    marginHorizontal: 1.5,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 1.5,
-  },
-  voiceDuration: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-    minWidth: 28,
-    textAlign: 'right',
   },
   // Input Bar
   inputBar: {
