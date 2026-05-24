@@ -11,6 +11,7 @@ import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
 import Header from '../../components/common/Header';
 import Heart from '../../components/common/Heart';
+import { useCouple } from '../../contexts/CoupleContext';
 
 const Toggle = ({ on, onPress }) => (
   <TouchableOpacity
@@ -76,6 +77,8 @@ const Row = ({
 };
 
 const SettingsScreen = ({ navigation }) => {
+  const { anniversaries } = useCouple();
+  const annCount = anniversaries.length;
   const [toggles, setToggles] = useState({
     chat: true,
     qa: true,
@@ -143,7 +146,7 @@ const SettingsScreen = ({ navigation }) => {
           <Row
             icon="💞"
             label="커플 관리"
-            value="지호 · 3개 기념일"
+            value={`지호 · ${annCount}개 기념일`}
             onPress={() => navigation?.navigate('CoupleManageScreen')}
             last
           />

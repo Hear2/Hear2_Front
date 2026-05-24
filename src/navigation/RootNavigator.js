@@ -26,6 +26,7 @@ import WhatIfSolutionScreen from '../screens/my/WhatIfSolutionScreen';
 import NotificationsScreen from '../screens/my/NotificationsScreen';
 import SettingsScreen from '../screens/my/SettingsScreen';
 import CoupleManageScreen from '../screens/my/CoupleManageScreen';
+import AnniversaryAddScreen from '../screens/my/AnniversaryAddScreen';
 import ProfileEditScreen from '../screens/my/ProfileEditScreen';
 import HelpScreen from '../screens/my/HelpScreen';
 import TermsScreen from '../screens/my/TermsScreen';
@@ -87,6 +88,11 @@ export default function RootNavigator() {
       <Stack.Screen name="NotificationsScreen" component={NotificationsScreen} />
       <Stack.Screen name="SettingsScreen" component={SettingsScreen} />
       <Stack.Screen name="CoupleManageScreen" component={CoupleManageScreen} />
+      <Stack.Screen
+        name="AnniversaryAddScreen"
+        component={AnniversaryAddScreen}
+        options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+      />
       <Stack.Screen name="ProfileEditScreen" component={ProfileEditScreen} />
       <Stack.Screen name="HelpScreen" component={HelpScreen} />
       <Stack.Screen name="TermsScreen" component={TermsScreen} />

@@ -6,6 +6,7 @@ import RootNavigator from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { MemoryProvider } from './src/contexts/MemoryContext';
 import { EventProvider } from './src/contexts/EventContext';
+import { CoupleProvider } from './src/contexts/CoupleContext';
 
 export default function App() {
   return (
@@ -13,9 +14,11 @@ export default function App() {
       <AuthProvider>
         <MemoryProvider>
           <EventProvider>
-            <NavigationContainer>
-              <RootNavigator />
-            </NavigationContainer>
+            <CoupleProvider>
+              <NavigationContainer>
+                <RootNavigator />
+              </NavigationContainer>
+            </CoupleProvider>
           </EventProvider>
         </MemoryProvider>
       </AuthProvider>

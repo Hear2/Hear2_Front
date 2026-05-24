@@ -32,6 +32,7 @@ export default function WheelPicker({ items, value, onChange, width = 80 }) {
         showsVerticalScrollIndicator={false}
         snapToInterval={ITEM_HEIGHT}
         decelerationRate="fast"
+        nestedScrollEnabled
         onMomentumScrollEnd={(e) => {
           const idx = Math.round(e.nativeEvent.contentOffset.y / ITEM_HEIGHT);
           const clamped = Math.max(0, Math.min(items.length - 1, idx));

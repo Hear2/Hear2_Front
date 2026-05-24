@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Defs, RadialGradient, Stop, Circle } from 'react-native-svg';
 import colors from '../../constants/colors';
 import SettingsShell from './SettingsShell';
 import Heart from '../../components/common/Heart';
+import { useCouple } from '../../contexts/CoupleContext';
 
 const NICKNAMES = [
   {
@@ -21,12 +22,6 @@ const NICKNAMES = [
   },
 ];
 
-const ANNIVERSARIES = [
-  { icon: '💕', label: '사귄 날', date: '2024.12.20', dday: 'D+485', color: colors.heartRed },
-  { icon: '🎂', label: '예진 생일', date: '2026.07.14', dday: 'D-66', color: '#FFB05B' },
-  { icon: '🎉', label: '1주년', date: '2025.12.20', dday: 'D+136', color: '#A78BFA' },
-];
-
 const withAlpha = (hex, alpha) => {
   const n = hex.replace('#', '');
   const r = parseInt(n.slice(0, 2), 16);
@@ -35,7 +30,36 @@ const withAlpha = (hex, alpha) => {
   return `rgba(${r},${g},${b},${alpha})`;
 };
 
-const CoupleManageScreen = ({ navigation }) => (
+const dotDate = (iso) => iso.replace(/-/g, '.');
+const ddayLabel = (iso) => {
+  const target = new Date(iso);
+  target.setHours(0, 0, 0, 0);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const diff = Math.round((target - now) / (1000 * 60 * 60 * 24));
+  if (diff > 0) return `D-${diff}`;
+  if (diff < 0) return `D+${Math.abs(diff)}`;
+  return 'D-DAY';
+};
+
+const sortByUpcoming = (list) => {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return [...list].sort((a, b) => {
+    const da = new Date(a.date) - now;
+    const db = new Date(b.date) - now;
+    // upcoming (>= 0) first, then most-recent past
+    if (da >= 0 && db < 0) return -1;
+    if (da < 0 && db >= 0) return 1;
+    if (da >= 0) return da - db;
+    return db - da;
+  });
+};
+
+const CoupleManageScreen = ({ navigation }) => {
+  const { anniversaries } = useCouple();
+  const sorted = useMemo(() => sortByUpcoming(anniversaries), [anniversaries]);
+  return (
   <SettingsShell navigation={navigation} title="커플 관리">
     {/* hero */}
     <LinearGradient
@@ -93,14 +117,18 @@ const CoupleManageScreen = ({ navigation }) => (
     {/* anniversaries */}
     <View style={styles.annHeader}>
       <Text style={styles.sectionLabel}>기념일 · D-DAY</Text>
-      <TouchableOpacity hitSlop={8} activeOpacity={0.7}>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => navigation?.navigate('AnniversaryAddScreen')}
+        style={styles.addBtn}
+      >
         <Text style={styles.addAction}>+ 추가</Text>
       </TouchableOpacity>
     </View>
     <View style={styles.card}>
-      {ANNIVERSARIES.map((a, i, arr) => (
+      {sorted.map((a, i, arr) => (
         <View
-          key={a.label}
+          key={a.id}
           style={[styles.annRow, i < arr.length - 1 && styles.divider]}
         >
           <View
@@ -112,10 +140,15 @@ const CoupleManageScreen = ({ navigation }) => (
             <Text style={{ fontSize: 16 }}>{a.icon}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.annLabel}>{a.label}</Text>
-            <Text style={styles.annDate}>{a.date}</Text>
+            <Text style={styles.annLabel}>
+              {a.name}
+              {a.auto ? <Text style={styles.autoTag}>  · 자동</Text> : null}
+            </Text>
+            <Text style={styles.annDate}>{dotDate(a.date)}</Text>
           </View>
-          <Text style={[styles.annDDay, { color: a.color }]}>{a.dday}</Text>
+          <Text style={[styles.annDDay, { color: a.color }]}>
+            {ddayLabel(a.date)}
+          </Text>
         </View>
       ))}
     </View>
@@ -128,7 +161,8 @@ const CoupleManageScreen = ({ navigation }) => (
       </Text>
     </View>
   </SettingsShell>
-);
+  );
+};
 
 const styles = StyleSheet.create({
   hero: {
@@ -182,8 +216,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  addAction: {
+  addBtn: {
     marginTop: 18,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginRight: -8,
+  },
+  addAction: {
     fontSize: 11,
     fontWeight: '800',
     color: colors.heartRed,
@@ -231,6 +270,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   annLabel: { fontSize: 13, fontWeight: '700', color: colors.ink },
+  autoTag: { fontSize: 10, fontWeight: '600', color: '#AAA' },
   annDate: { fontSize: 10, color: '#888', marginTop: 2 },
   annDDay: { fontSize: 12, fontWeight: '800' },
 
