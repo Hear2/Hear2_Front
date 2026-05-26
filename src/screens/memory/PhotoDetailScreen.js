@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,45 +7,173 @@ import {
   ScrollView,
   TextInput,
   Share,
+  Image,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
+import {
+  fetchMemory,
+  deleteMemory as apiDeleteMemory,
+} from '../../api/memoryAPI';
+import { useMemories } from '../../contexts/MemoryContext';
 
-const TAGS = [
-  { label: '데이트', color: colors.pink },
-  { label: '봄', color: '#FFB05B' },
-  { label: '벚꽃', color: colors.pinkDeep },
-  { label: '서울숲', color: '#7ED7A0' },
+const TAG_COLOR_CYCLE = [
+  colors.pink,
+  '#FFB05B',
+  colors.pinkDeep,
+  '#7ED7A0',
+  colors.blue,
 ];
 
-const AI_INSIGHTS = [
-  { icon: '🌸', label: '주요 색상', value: '벚꽃 핑크' },
-  { icon: '😊', label: '얼굴 인식', value: '2명 (예진·지호)' },
-  { icon: '🗓', label: '비슷한 추억', value: '작년 4월 8일' },
-  { icon: '🎵', label: '추천 BGM', value: '봄 사랑 벚꽃' },
-];
+// 댓글 기능은 BE 미구현 — 디자인 유지용 더미 (보이지 않게 빈 배열로 전환)
+const COMMENTS = [];
 
-const COMMENTS = [
-  { who: '예', name: '예진', tone: '#FFE4EE', color: colors.pinkDeep, text: '오빠랑 보니까 더 예뻤어 🥰', when: '2시간 전' },
-  { who: '지', name: '지호', tone: colors.blueTint, color: colors.blue, text: '나도. 사진 잘 찍었네 ㅎㅎ 내년에도 가자!', when: '1시간 전' },
-  { who: '예', name: '예진', tone: '#FFE4EE', color: colors.pinkDeep, text: '약속! 💕', when: '방금' },
-];
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const dow = ['일', '월', '화', '수', '목', '금', '토'][d.getDay()];
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${yr}.${mo}.${day} (${dow}) ${hh}:${mm}`;
+}
 
-const DOTS_TOTAL = 5;
-const DOTS_ACTIVE = 2;
+function relativeFromNow(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return '방금';
+  if (mins < 60) return `${mins}분 전`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}시간 전`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}일 전`;
+  return formatDate(iso);
+}
 
-export default function PhotoDetailScreen({ navigation }) {
+export default function PhotoDetailScreen({ navigation, route }) {
   const [draft, setDraft] = useState('');
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const insets = useSafeAreaInsets();
+  const passedMemory = route?.params?.memory || null;
+  // PhotoUpload는 N장 업로드 시 backendIds(복수) 배열로 저장, AlbumScreen이 BE refresh로 가져온 건 backendId(단수).
+  // BE detail까지 호출됐다면 detail.id가 가장 신뢰성 높음.
+  const backendId =
+    passedMemory?.backendId ||
+    passedMemory?.backendIds?.[0] ||
+    passedMemory?.id;
+
+  const { refresh: refreshAlbum } = useMemories();
+
+  // BE detail (있으면 사용, 없으면 passedMemory 그대로 표시)
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const loadDetail = useCallback(async () => {
+    if (!backendId) return;
+    setLoading(true);
+    try {
+      const res = await fetchMemory(backendId);
+      setDetail(res);
+    } catch (_) {
+      // 실패하면 로컬 데이터로 표시
+    } finally {
+      setLoading(false);
+    }
+  }, [backendId]);
+
+  useEffect(() => {
+    loadDetail();
+  }, [loadDetail]);
+
+  // 표시용 통합 모델: BE detail 우선, 없으면 navigation params
+  const view = useMemo(() => {
+    if (detail) {
+      const aiTagSlugs = (detail.aiTags || []).map((t) => t.replace(/^#/, ''));
+      const userTagSlugs = (detail.userTags || []).map((t) => t.replace(/^#/, ''));
+      const tags = [...new Set([...userTagSlugs, ...aiTagSlugs])];
+      return {
+        title: (detail.memo || '').split('\n')[0] || '제목 없는 추억',
+        memo: (detail.memo || '').split('\n').slice(1).join('\n') || detail.memo || '',
+        photoUrl: detail.photoUrl,
+        takenAt: detail.metadata?.takenAt || detail.createdAt,
+        memoryDate: detail.memoryDate,
+        place: detail.metadata?.locationName || '',
+        tags,
+        aiTags: aiTagSlugs,
+      };
+    }
+    // 로컬 시드/임시 모델
+    return {
+      title: passedMemory?.title || (passedMemory?.tag || '추억'),
+      memo: passedMemory?.memo || '',
+      photoUrl: passedMemory?.photoUri || null,
+      takenAt: null,
+      memoryDate: null,
+      place: passedMemory?.place || '',
+      tags: passedMemory?.tag
+        ? [passedMemory.tag.replace(/^#/, '')]
+        : [],
+      aiTags: [],
+    };
+  }, [detail, passedMemory]);
 
   const goBack = () => navigation?.goBack?.();
 
   const handleShare = async () => {
     try {
       await Share.share({
-        message: '서울숲 벚꽃 🌸 — 우리 둘의 추억',
+        message: `${view.title} — 우리 둘의 추억`,
       });
     } catch {}
+  };
+
+  const handleDelete = () => {
+    // 여러 장 업로드 케이스 대비: backendIds 배열이 있으면 그것 우선, 아니면 backendId 하나
+    const idsToDelete =
+      (Array.isArray(passedMemory?.backendIds) && passedMemory.backendIds.length > 0)
+        ? passedMemory.backendIds
+        : (backendId ? [backendId] : []);
+
+    if (__DEV__) {
+      console.log('[PhotoDetail] handleDelete:', { backendId, idsToDelete, passedMemory });
+    }
+
+    if (idsToDelete.length === 0) {
+      Alert.alert(
+        '삭제할 수 없어요',
+        '이 추억의 서버 ID를 찾을 수 없습니다. 앨범에서 새로고침 후 다시 시도해 주세요.',
+      );
+      return;
+    }
+    Alert.alert('추억을 삭제할까요?', '되돌릴 수 없어요.', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          setDeleting(true);
+          try {
+            await Promise.all(idsToDelete.map((id) => apiDeleteMemory(id)));
+            refreshAlbum?.().catch(() => {});
+            goBack();
+          } catch (e) {
+            Alert.alert('삭제 실패', e?.message || '잠시 후 다시 시도해주세요');
+          } finally {
+            setDeleting(false);
+          }
+        },
+      },
+    ]);
   };
 
   return (
@@ -57,114 +185,163 @@ export default function PhotoDetailScreen({ navigation }) {
             <Text style={styles.appbarBtnText}>‹</Text>
           </TouchableOpacity>
           <View style={{ alignItems: 'center' }}>
-            <Text style={styles.appbarCount}>3 / 24</Text>
-            <Text style={styles.appbarDate}>2026.04.12</Text>
+            <Text style={styles.appbarCount}>추억</Text>
+            <Text style={styles.appbarDate}>
+              {view.memoryDate
+                ? view.memoryDate.replace(/-/g, '.')
+                : (view.takenAt ? formatDate(view.takenAt).split(' ')[0] : '')}
+            </Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 6 }}>
-            <TouchableOpacity style={styles.appbarBtn}>
+            <TouchableOpacity style={styles.appbarBtn} onPress={handleShare}>
               <Text style={styles.appbarBtnTextSm}>↗</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.appbarBtn}>
+            <TouchableOpacity
+              style={styles.appbarBtn}
+              onPress={() => setMoreMenuOpen((v) => !v)}
+            >
               <Text style={styles.appbarBtnTextSm}>⋯</Text>
             </TouchableOpacity>
           </View>
         </View>
       </SafeAreaView>
+      {/* 메뉴 + backdrop은 root 레벨에서 SafeAreaView보다 위에 렌더해서 zIndex 충돌 방지 */}
+      {moreMenuOpen && (
+        <>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={styles.moreMenuBackdrop}
+            onPress={() => setMoreMenuOpen(false)}
+          />
+          <View
+            style={[
+              styles.moreMenu,
+              { top: 56 + Math.max(insets.top, 0) },
+            ]}
+          >
+            <TouchableOpacity
+              style={styles.moreMenuItem}
+              onPress={() => {
+                setMoreMenuOpen(false);
+                // Alert 보장을 위해 다음 tick에서 호출
+                setTimeout(() => handleDelete(), 0);
+              }}
+            >
+              <Text style={styles.moreMenuItemText}>🗑  삭제</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
 
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 96 }}
+        contentContainerStyle={{ paddingBottom: 96 + Math.max(insets.bottom, 0) }}
       >
         {/* Hero photo */}
-        <LinearGradient
-          colors={['#FFE4EE', colors.peach, colors.pink]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.hero}
-        >
-          <Text style={styles.heroEmoji}>🌸</Text>
-          <Text style={[styles.sparkle, styles.sparkleA]}>✨</Text>
-          <Text style={[styles.sparkle, styles.sparkleB]}>✨</Text>
-          <View style={styles.heroDots}>
-            {Array.from({ length: DOTS_TOTAL }).map((_, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.heroDot,
-                  i === DOTS_ACTIVE && styles.heroDotActive,
-                ]}
-              />
-            ))}
+        {view.photoUrl ? (
+          <View style={styles.hero}>
+            <Image source={{ uri: view.photoUrl }} style={styles.heroImage} />
+            {loading && (
+              <View style={styles.heroLoader}>
+                <ActivityIndicator color="#fff" />
+              </View>
+            )}
           </View>
-        </LinearGradient>
+        ) : (
+          <LinearGradient
+            colors={['#FFE4EE', colors.peach, colors.pink]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.hero}
+          >
+            <Text style={styles.heroEmoji}>
+              {passedMemory?.emoji || '📷'}
+            </Text>
+            <Text style={[styles.sparkle, styles.sparkleA]}>✨</Text>
+            <Text style={[styles.sparkle, styles.sparkleB]}>✨</Text>
+          </LinearGradient>
+        )}
 
         {/* Sheet */}
         <View style={styles.sheet}>
           <View style={styles.dragHandle} />
 
-          <Text style={styles.title}>서울숲 벚꽃 🌸</Text>
+          <Text style={styles.title}>{view.title}</Text>
           <View style={styles.metaRow}>
-            <Text style={styles.metaItem}>📅 2026.04.12 (토) 오후 3:24</Text>
-            <View style={styles.metaDot} />
-            <Text style={styles.metaItem}>📍 서울숲</Text>
-            <View style={styles.metaDot} />
-            <Text style={styles.metaItem}>📷 iPhone 15 Pro</Text>
+            {view.takenAt ? (
+              <Text style={styles.metaItem}>📅 {formatDate(view.takenAt)}</Text>
+            ) : null}
+            {view.place ? (
+              <>
+                {view.takenAt ? <View style={styles.metaDot} /> : null}
+                <Text style={styles.metaItem}>📍 {view.place}</Text>
+              </>
+            ) : null}
           </View>
 
           {/* Uploader */}
           <View style={styles.uploader}>
             <View style={styles.uploaderAvatar}>
-              <Text style={styles.uploaderAvatarText}>예</Text>
+              <Text style={styles.uploaderAvatarText}>👤</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.uploaderName}>예진이 올림</Text>
-              <Text style={styles.uploaderSub}>2시간 전 · 두 분의 추억함에 저장됨</Text>
+              <Text style={styles.uploaderName}>
+                {detail?.uploaderId ? `사용자 ${detail.uploaderId}` : '내가 올림'}
+              </Text>
+              <Text style={styles.uploaderSub}>
+                {view.takenAt
+                  ? `${relativeFromNow(view.takenAt)} · 두 분의 추억함에 저장됨`
+                  : '두 분의 추억함에 저장됨'}
+              </Text>
             </View>
             <View style={styles.sharedPill}>
               <Text style={styles.sharedPillText}>공유 중</Text>
             </View>
           </View>
 
-          {/* Tags + emotion */}
-          <View style={styles.tagRow}>
-            {TAGS.map((t) => (
-              <View
-                key={t.label}
-                style={[styles.tagChip, { backgroundColor: `${t.color}26` }]}
-              >
-                <Text style={[styles.tagChipText, { color: t.color }]}>#{t.label}</Text>
-              </View>
-            ))}
-            <View style={styles.emotionChip}>
-              <Text style={styles.emotionChipText}>🥰 사랑</Text>
+          {/* Tags */}
+          {view.tags.length > 0 && (
+            <View style={styles.tagRow}>
+              {view.tags.map((t, i) => {
+                const c = TAG_COLOR_CYCLE[i % TAG_COLOR_CYCLE.length];
+                return (
+                  <View
+                    key={t}
+                    style={[styles.tagChip, { backgroundColor: `${c}26` }]}
+                  >
+                    <Text style={[styles.tagChipText, { color: c }]}>#{t}</Text>
+                  </View>
+                );
+              })}
             </View>
-          </View>
+          )}
 
           {/* Memo */}
-          <View style={styles.memoCard}>
-            <Text style={styles.memoQuote}>“</Text>
-            <Text style={styles.memoText}>
-              벚꽃이 이렇게 예쁠 줄이야. 지호랑 같이 보니까 더 예뻐 보였어. 내년에도 꼭 같이 오자 🌸
-            </Text>
-          </View>
-
-          {/* AI insights */}
-          <View style={styles.insightsCard}>
-            <Text style={styles.insightsHeader}>✨ AI가 발견한 것</Text>
-            <View style={styles.insightsGrid}>
-              {AI_INSIGHTS.map((r) => (
-                <View key={r.label} style={styles.insightItem}>
-                  <Text style={styles.insightLabel}>
-                    {r.icon} {r.label}
-                  </Text>
-                  <Text style={styles.insightValue}>{r.value}</Text>
-                </View>
-              ))}
+          {view.memo ? (
+            <View style={styles.memoCard}>
+              <Text style={styles.memoQuote}>“</Text>
+              <Text style={styles.memoText}>{view.memo}</Text>
             </View>
-          </View>
+          ) : null}
 
-          {/* Comments */}
+          {/* AI 발견 (AI 태그가 있을 때만) */}
+          {view.aiTags.length > 0 && (
+            <View style={styles.insightsCard}>
+              <Text style={styles.insightsHeader}>✨ AI가 발견한 것</Text>
+              <View style={styles.insightsGrid}>
+                {view.aiTags.slice(0, 4).map((tag) => (
+                  <View key={tag} style={styles.insightItem}>
+                    <Text style={styles.insightLabel}>🏷️ 태그</Text>
+                    <Text style={styles.insightValue}>#{tag}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Comments (BE 미구현 — 댓글 0개일 때 카드 숨김) */}
+          {COMMENTS.length > 0 && (
           <View style={styles.commentsCard}>
             <View style={styles.commentsHeaderRow}>
               <Text style={styles.commentsTitle}>💬 우리의 한마디</Text>
@@ -206,6 +383,7 @@ export default function PhotoDetailScreen({ navigation }) {
               </TouchableOpacity>
             </View>
           </View>
+          )}
 
           {/* Connected event */}
           <TouchableOpacity
@@ -235,7 +413,12 @@ export default function PhotoDetailScreen({ navigation }) {
       </ScrollView>
 
       {/* Bottom action bar */}
-      <View style={styles.actionBar}>
+      <View
+        style={[
+          styles.actionBar,
+          { paddingBottom: 12 + Math.max(insets.bottom, 0) },
+        ]}
+      >
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={handleShare}
@@ -251,14 +434,24 @@ export default function PhotoDetailScreen({ navigation }) {
             <Text style={styles.likeText}>공유하기</Text>
           </LinearGradient>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.iconBtn}>
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => Alert.alert('알림', '다운로드는 다음 스프린트에 추가됩니다.')}
+        >
           <Text style={styles.iconBtnText}>📥</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.iconBtn}>
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => Alert.alert('알림', '편집은 다음 스프린트에 추가됩니다.')}
+        >
           <Text style={styles.iconBtnText}>✏️</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.iconBtn, styles.iconBtnDanger]}>
-          <Text style={styles.iconBtnText}>🗑</Text>
+        <TouchableOpacity
+          style={[styles.iconBtn, styles.iconBtnDanger]}
+          onPress={handleDelete}
+          disabled={deleting}
+        >
+          <Text style={styles.iconBtnText}>{deleting ? '…' : '🗑'}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -268,6 +461,39 @@ export default function PhotoDetailScreen({ navigation }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0F0F1A' },
   safe: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
+  moreMenu: {
+    position: 'absolute',
+    // top은 인라인으로 (status bar inset 반영)
+    right: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 6,
+    minWidth: 130,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 12,
+    elevation: 12, // Android: 메뉴를 backdrop 위로
+    zIndex: 100,
+  },
+  moreMenuItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+  },
+  moreMenuItemText: {
+    fontSize: 14,
+    color: colors.heartRed,
+    fontWeight: '600',
+  },
+  moreMenuBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    elevation: 11, // Android: backdrop은 menu 바로 아래
+    zIndex: 99,
+  },
   scroll: { flex: 1, backgroundColor: '#fff' },
 
   appbar: {
@@ -299,6 +525,17 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   heroEmoji: { fontSize: 120, opacity: 0.85 },
+  heroImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  heroLoader: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.18)',
+  },
   sparkle: { position: 'absolute', color: '#fff' },
   sparkleA: { top: '20%', left: '15%', fontSize: 14 },
   sparkleB: { top: '60%', right: '20%', fontSize: 12 },
@@ -550,7 +787,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: 16,
     paddingTop: 10,
-    paddingBottom: 14,
+    // paddingBottom은 인라인으로 insets.bottom 더해서 주입
     backgroundColor: '#fff',
     flexDirection: 'row',
     gap: 8,

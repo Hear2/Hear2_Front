@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,13 +9,29 @@ import {
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
+  Image,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+import * as MediaLibrary from 'expo-media-library';
+// expo-file-system v19+ 에서 readAsStringAsync/EncodingType은 legacy 서브패스로 이동됨
+import * as FileSystem from 'expo-file-system/legacy';
+import piexif from 'piexifjs';
 import colors from '../../constants/colors';
 import { useMemories } from '../../contexts/MemoryContext';
 import CalendarPicker from '../../components/common/CalendarPicker';
 import LocationPicker from '../../components/common/LocationPicker';
+import {
+  createPresignedUrl,
+  uploadToPresignedUrl,
+  createQuickMemory,
+  updateQuickMemory,
+  deleteMemory as apiDeleteMemory,
+} from '../../api/memoryAPI';
+import { ApiError } from '../../api/client';
 
 const DOW_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
 const formatDate = (d) =>
@@ -55,41 +71,259 @@ const MOODS = [
   { id: 'flutter', emoji: '✨', label: '설렘' },
 ];
 
-// 각 사진에 mock 메타데이터(location)를 부여 — 실제 환경에서는 EXIF/GPS에서 추출
-const INITIAL_LIBRARY = [
-  { id: 'p1', emoji: '🌸', tint: '#FFE4EE',         location: { icon: '🌸', name: '서울숲' } },
-  { id: 'p2', emoji: '☕', tint: '#FFE4EE',         location: { icon: '☕', name: '망원동 카페' } },
-  { id: 'p3', emoji: '🍜', tint: colors.yellowTint, location: { icon: '🍜', name: '신촌' } },
-  { id: 'p4', emoji: '🎂', tint: colors.yellowTint, location: { icon: '🏠', name: '집' } },
-  { id: 'p5', emoji: '🌅', tint: '#FFF0E5',         location: { icon: '🌊', name: '해운대' } },
-  { id: 'p6', emoji: '🎡', tint: '#FFE4EE',         location: { icon: '🎡', name: '롯데월드' } },
-  { id: 'p7', emoji: '🍰', tint: colors.yellowTint, location: { icon: '🍰', name: '연남동' } },
-  { id: 'p8', emoji: '🌺', tint: '#FFE4EE',         location: { icon: '🌴', name: '제주도' } },
-  { id: 'p9', emoji: '🍻', tint: '#FFF0E5',         location: { icon: '🍻', name: '강남역' } },
+// 디자인 미리보기용 이모지 placeholder. 실제 갤러리에서 사진을 고르기 전까지 그리드를 채워둔다.
+const PLACEHOLDER_LIBRARY = [
+  { id: 'ph1', kind: 'mock', emoji: '🌸', tint: '#FFE4EE',         location: { icon: '🌸', name: '서울숲' } },
+  { id: 'ph2', kind: 'mock', emoji: '☕', tint: '#FFE4EE',         location: { icon: '☕', name: '망원동 카페' } },
+  { id: 'ph3', kind: 'mock', emoji: '🍜', tint: colors.yellowTint, location: { icon: '🍜', name: '신촌' } },
+  { id: 'ph4', kind: 'mock', emoji: '🎂', tint: colors.yellowTint, location: { icon: '🏠', name: '집' } },
+  { id: 'ph5', kind: 'mock', emoji: '🌅', tint: '#FFF0E5',         location: { icon: '🌊', name: '해운대' } },
+  { id: 'ph6', kind: 'mock', emoji: '🎡', tint: '#FFE4EE',         location: { icon: '🎡', name: '롯데월드' } },
+  { id: 'ph7', kind: 'mock', emoji: '🍰', tint: colors.yellowTint, location: { icon: '🍰', name: '연남동' } },
+  { id: 'ph8', kind: 'mock', emoji: '🌺', tint: '#FFE4EE',         location: { icon: '🌴', name: '제주도' } },
+  { id: 'ph9', kind: 'mock', emoji: '🍻', tint: '#FFF0E5',         location: { icon: '🍻', name: '강남역' } },
 ];
 
+// label("#봄") → 슬러그("봄"). BE는 # 없이 받음.
+const stripHash = (s) => (s || '').replace(/^#+/, '').trim();
+
+// expo-media-library asset → 우리 library 아이템.
+// MediaLibrary.Asset에는 EXIF GPS가 location.{latitude,longitude}로 노출됨 (권한 있을 때).
+function mediaAssetToPhotoItem(asset, fullInfo = null) {
+  const filename = asset.filename || `${asset.id}.jpg`;
+  const ext = filename.split('.').pop().toLowerCase();
+  const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+  const location = fullInfo?.location ?? asset.location ?? null;
+  const exif = fullInfo?.exif ?? null;
+  return {
+    id: `ml-${asset.id}`,
+    kind: 'photo',
+    // 안드로이드는 content:// uri, iOS는 ph:// uri를 줄 수 있음.
+    // FileSystem/fetch가 content:// 는 가능하지만 ph:// 는 안 되므로 localUri 우선 사용.
+    uri: fullInfo?.localUri || asset.uri,
+    width: asset.width,
+    height: asset.height,
+    mimeType: mime,
+    fileName: filename,
+    // GPS/촬영시각은 EXIF에 의존하지 않고 media-library 메타데이터 우선 사용
+    location, // { latitude, longitude }
+    creationTime: asset.creationTime, // ms epoch
+    exif,
+  };
+}
+
+// expo-image-picker asset → 우리 library 아이템
+function assetToPhotoItem(asset, idx = 0) {
+  const ext = (asset.fileName || asset.uri || '').split('.').pop() || 'jpg';
+  const mime =
+    asset.mimeType || (ext.toLowerCase() === 'png' ? 'image/png' : 'image/jpeg');
+  return {
+    id: `photo-${Date.now()}-${idx}`,
+    kind: 'photo',
+    uri: asset.uri,
+    width: asset.width,
+    height: asset.height,
+    mimeType: mime,
+    fileName: asset.fileName || `memory-${Date.now()}-${idx}.${ext}`,
+    exif: asset.exif || null,
+  };
+}
+
+// piexifjs의 GPSIFD 키들로 EXIF GPS를 decimal degrees로 변환.
+function piexifGpsToDecimal(gpsIfd) {
+  if (!gpsIfd) return { lat: null, lng: null };
+  const latArr = gpsIfd[piexif.GPSIFD.GPSLatitude];
+  const lngArr = gpsIfd[piexif.GPSIFD.GPSLongitude];
+  const latRef = gpsIfd[piexif.GPSIFD.GPSLatitudeRef];
+  const lngRef = gpsIfd[piexif.GPSIFD.GPSLongitudeRef];
+  if (!latArr || !lngArr) return { lat: null, lng: null };
+  // 각 원소가 [num, den] 형태의 rational.
+  const ratToDeg = (arr, ref) => {
+    const [d, m, s] = arr.map(([n, dn]) => (dn === 0 ? 0 : n / dn));
+    let val = d + m / 60 + s / 3600;
+    if (ref === 'S' || ref === 'W') val = -val;
+    return val;
+  };
+  return {
+    lat: ratToDeg(latArr, latRef),
+    lng: ratToDeg(lngArr, lngRef),
+  };
+}
+
+// 파일 URI에서 EXIF GPS/촬영시각을 직접 읽음.
+// Android 13+ 시스템 PhotoPicker가 picker 응답에서 GPS를 제거하므로,
+// 파일 바이트를 직접 읽어서 EXIF 헤더를 파싱.
+async function readExifFromFile(uri) {
+  try {
+    // expo-file-system은 file:// / content:// URI 모두 base64로 읽을 수 있음
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    // piexif는 jpeg 헤더를 포함한 binary string 또는 data URL을 받음
+    const dataUrl = 'data:image/jpeg;base64,' + base64;
+    const exif = piexif.load(dataUrl);
+
+    const { lat, lng } = piexifGpsToDecimal(exif?.GPS);
+    let finalLat = Number.isFinite(lat) ? lat : null;
+    let finalLng = Number.isFinite(lng) ? lng : null;
+    if (finalLat === 0 && finalLng === 0) {
+      finalLat = null;
+      finalLng = null;
+    }
+
+    let capturedAt = null;
+    const dto =
+      exif?.Exif?.[piexif.ExifIFD.DateTimeOriginal] ||
+      exif?.['0th']?.[piexif.ImageIFD.DateTime];
+    if (dto) {
+      const iso = String(dto).replace(/^(\d{4}):(\d{2}):(\d{2}) /, '$1-$2-$3T');
+      const d = new Date(iso);
+      if (!Number.isNaN(d.getTime())) capturedAt = d.toISOString();
+    }
+
+    if (__DEV__) {
+      console.log('[PhotoUpload] EXIF from file:', {
+        lat: finalLat,
+        lng: finalLng,
+        capturedAt,
+      });
+    }
+
+    return { lat: finalLat, lng: finalLng, capturedAt };
+  } catch (e) {
+    if (__DEV__) console.log('[PhotoUpload] readExifFromFile failed:', e?.message);
+    return { lat: null, lng: null, capturedAt: null };
+  }
+}
+
+// BE MemoryQuickResponse.aiTime: "2026-05-12 14:00" → Date
+function parseAiTime(aiTime) {
+  if (!aiTime) return null;
+  // "yyyy-MM-dd HH:mm" → ISO 보정
+  const iso = aiTime.includes('T') ? aiTime : aiTime.replace(' ', 'T') + ':00';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+// EXIF GPS를 decimal degrees로 변환.
+// iOS: number(decimal). Android: 문자열 "37/1,13/1,21500/1000" (DMS as rational fractions).
+function parseGpsCoord(value) {
+  if (value == null) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  const s = value.trim();
+  if (!s) return null;
+  // 이미 decimal 문자열인 경우
+  const asNum = Number(s);
+  if (Number.isFinite(asNum) && !s.includes(',') && !s.includes('/')) {
+    return asNum;
+  }
+  // "37/1,13/1,21500/1000" 형태 — degrees, minutes, seconds (rational)
+  const parts = s.split(',').map((p) => p.trim());
+  if (parts.length < 2) return null;
+  const toDecimal = (frac) => {
+    if (!frac) return 0;
+    if (frac.includes('/')) {
+      const [num, den] = frac.split('/').map(Number);
+      if (!Number.isFinite(num) || !Number.isFinite(den) || den === 0) return 0;
+      return num / den;
+    }
+    const n = Number(frac);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const deg = toDecimal(parts[0]);
+  const min = toDecimal(parts[1]);
+  const sec = parts[2] ? toDecimal(parts[2]) : 0;
+  const dec = deg + min / 60 + sec / 3600;
+  return Number.isFinite(dec) ? dec : null;
+}
+
+// EXIF에서 lat/lng/촬영시각 추출. 없으면 null.
+function exifToMeta(exif) {
+  if (!exif) return { lat: null, lng: null, capturedAt: null };
+
+  // expo-image-picker는 플랫폼/버전마다 키 이름·형식이 다르다.
+  // iOS:    { GPSLatitude(number), GPSLatitudeRef:"N|S", GPSLongitude(number), GPSLongitudeRef:"E|W", DateTimeOriginal }
+  // Android: GPSLatitude/Longitude가 "deg/1,min/1,sec/1000" 문자열일 수 있음. 또 일부 빌드는 latitude/longitude 키로 내려줌.
+  const rawLat = exif.GPSLatitude ?? exif.latitude ?? exif.Latitude;
+  const rawLng = exif.GPSLongitude ?? exif.longitude ?? exif.Longitude;
+  const latRef = exif.GPSLatitudeRef ?? exif.latitudeRef ?? 'N';
+  const lngRef = exif.GPSLongitudeRef ?? exif.longitudeRef ?? 'E';
+
+  let lat = parseGpsCoord(rawLat);
+  let lng = parseGpsCoord(rawLng);
+  if (lat != null && (latRef === 'S' || latRef === 's')) lat = -lat;
+  if (lng != null && (lngRef === 'W' || lngRef === 'w')) lng = -lng;
+  // 좌표가 모두 0이면 GPS 없는 사진. null로 처리해서 BE가 reverse geocoding 시도하지 않게.
+  if (lat === 0 && lng === 0) {
+    lat = null;
+    lng = null;
+  }
+
+  const dto = exif.DateTimeOriginal || exif.DateTime || null;
+  let capturedAt = null;
+  if (dto) {
+    // "2024:05:12 14:00:00" → ISO
+    const iso = String(dto).replace(/^(\d{4}):(\d{2}):(\d{2}) /, '$1-$2-$3T');
+    const d = new Date(iso);
+    if (!Number.isNaN(d.getTime())) capturedAt = d.toISOString();
+  }
+
+  // 디버그: picker가 EXIF 어떻게 주는지 한 번에 보기 (운영에선 콘솔만)
+  if (__DEV__) {
+    console.log('[PhotoUpload] EXIF parsed:', {
+      lat,
+      lng,
+      capturedAt,
+      rawLat,
+      rawLng,
+      latRef,
+      lngRef,
+    });
+  }
+
+  return { lat, lng, capturedAt };
+}
+
 export default function PhotoUpload({ navigation }) {
-  const { addMemory } = useMemories();
+  const { addMemory, refresh } = useMemories();
   const { width: winWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const cellSize = Math.floor(
     (winWidth - GRID_PAD * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS,
   );
 
   const [source, setSource] = useState('gallery');
-  const [selected, setSelected] = useState(['p1', 'p2', 'p3']);
-  const [title, setTitle] = useState('서울숲에서 봄나들이');
+  const [library, setLibrary] = useState(PLACEHOLDER_LIBRARY);
+  const [selected, setSelected] = useState([]);
+  const [title, setTitle] = useState('');
   const [pickedDate, setPickedDate] = useState(new Date());
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [place, setPlace] = useState('서울숲');
+  const [place, setPlace] = useState('');
   const [placeOpen, setPlaceOpen] = useState(false);
-  const [memo, setMemo] = useState('벚꽃이 정말 예뻤던 날. 손잡고 한참을 걸었어.');
-  const [activeTags, setActiveTags] = useState(
-    TAG_OPTIONS.filter((t) => t.defaultOn).map((t) => t.id),
+  const [memo, setMemo] = useState('');
+  // 칩으로 표시할 태그 목록 (slug, # 없이). 초기엔 정적 기본 5개 — AI 도착 시 통째로 교체.
+  const [tagSlugs, setTagSlugs] = useState(
+    TAG_OPTIONS.map((t) => t.label),
+  );
+  // 활성화(선택)된 태그 — 초기엔 defaultOn 3개. AI 도착 시 AI 태그로 교체.
+  const [activeTagSlugs, setActiveTagSlugs] = useState(
+    TAG_OPTIONS.filter((t) => t.defaultOn).map((t) => t.label),
   );
   const [mood, setMood] = useState('love');
   const [shareWithPartner, setShareWithPartner] = useState(true);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // photoId → BE MemoryQuickResponse 캐시
+  const [drafts, setDrafts] = useState({});
+  // unmount 시 cleanup용 동기화 ref
+  const draftsRef = useRef({});
+  // 저장 성공 시 true — cleanup 단계에서 미삭제로 처리
+  const savedRef = useRef(false);
 
-  const library = INITIAL_LIBRARY;
+  // 표시할 칩 목록 = tagSlugs 그대로 (AI 도착 시 통째로 교체되므로 추가 머지 불필요)
+  const allTagSlugs = tagSlugs;
+
   const selectedItems = useMemo(
     () =>
       selected
@@ -97,47 +331,381 @@ export default function PhotoUpload({ navigation }) {
         .filter(Boolean),
     [selected, library],
   );
+
   const placeOptions = useMemo(
     () => selectedItems.map((p) => p.location).filter(Boolean),
     [selectedItems],
   );
 
-  const handleSave = () => {
-    if (selectedItems.length === 0) {
+  // 첫 사진 draft 응답을 받아서 UI(날짜·위치·태그 칩) 자동 채우기
+  const applyAutoFillFromDraft = useCallback((draft) => {
+    if (!draft) return;
+    const d = parseAiTime(draft.aiTime);
+    if (d) setPickedDate(d);
+    if (draft.aiPlace) setPlace(draft.aiPlace);
+    const aiTagSlugs = Array.isArray(draft.aiTags)
+      ? draft.aiTags.map(stripHash).filter(Boolean)
+      : [];
+    if (aiTagSlugs.length > 0) {
+      // AI 태그가 도착하면 정적 기본 태그(#데이트 #봄 #산책)는 제거하고 AI 결과로 교체.
+      // 사용자가 다시 토글해서 추가하고 싶으면 칩에서 직접 선택.
+      setTagSlugs(aiTagSlugs);
+      setActiveTagSlugs(aiTagSlugs);
+    }
+  }, []);
+
+  // 한 사진을 presigned upload → POST /memory/quick으로 draft 생성.
+  // 응답값을 drafts 캐시에 보관 + 첫 사진이면 UI 자동 채움.
+  const createDraftForPhoto = useCallback(
+    async (photo, isFirst) => {
+      if (!photo) return null;
+      if (isFirst) setAnalyzing(true);
+      try {
+        // 1차: media-library가 직접 노출하는 location/creationTime (가장 신뢰도 높음)
+        let exifMeta = {
+          lat: photo.location?.latitude ?? null,
+          lng: photo.location?.longitude ?? null,
+          capturedAt: photo.creationTime
+            ? new Date(photo.creationTime).toISOString()
+            : null,
+        };
+        // 2차: picker가 준 exif에서 추출 (image-picker 경로)
+        if (exifMeta.lat == null || exifMeta.lng == null) {
+          const fromPicker = exifToMeta(photo.exif);
+          exifMeta = {
+            lat: fromPicker.lat ?? exifMeta.lat,
+            lng: fromPicker.lng ?? exifMeta.lng,
+            capturedAt: fromPicker.capturedAt ?? exifMeta.capturedAt,
+          };
+        }
+        // 3차: 파일 바이트에서 직접 EXIF 헤더 파싱 (최후 fallback)
+        if (exifMeta.lat == null || exifMeta.lng == null) {
+          const fileMeta = await readExifFromFile(photo.uri);
+          exifMeta = {
+            lat: fileMeta.lat ?? exifMeta.lat,
+            lng: fileMeta.lng ?? exifMeta.lng,
+            capturedAt: fileMeta.capturedAt ?? exifMeta.capturedAt,
+          };
+        }
+        if (__DEV__) {
+          console.log('[PhotoUpload] final meta for BE:', exifMeta);
+        }
+        const presigned = await createPresignedUrl({
+          mediaType: 'photo',
+          contentType: photo.mimeType,
+          originalFileName: photo.fileName,
+          purpose: 'memory',
+        });
+        await uploadToPresignedUrl({
+          uploadUrl: presigned.uploadUrl,
+          method: presigned.method,
+          headers: presigned.headers,
+          fileUri: photo.uri,
+          contentType: photo.mimeType,
+        });
+        const created = await createQuickMemory({
+          objectKey: presigned.objectKey,
+          lat: exifMeta.lat,
+          lng: exifMeta.lng,
+          // EXIF에 촬영시각이 없으면 현재 시각으로 — capturedAt이 빠지면 BE가 createdAt 사용
+          capturedAt: exifMeta.capturedAt || new Date().toISOString(),
+          userTags: [],
+        });
+        // drafts 상태 + ref 동기화
+        setDrafts((prev) => {
+          const next = { ...prev, [photo.id]: created };
+          draftsRef.current = next;
+          return next;
+        });
+        if (isFirst) applyAutoFillFromDraft(created);
+        return created;
+      } catch (e) {
+        // 개별 draft 실패는 사용자에게 별도 안내 안 함 (저장 시점에 재시도됨)
+        return null;
+      } finally {
+        if (isFirst) setAnalyzing(false);
+      }
+    },
+    [applyAutoFillFromDraft],
+  );
+
+  // 갤러리/카메라 결과를 공통으로 흡수
+  const ingestAssets = useCallback(
+    (assets) => {
+      if (!assets?.length) return;
+      const photos = assets.map((a, i) => assetToPhotoItem(a, i));
+      setLibrary((prev) => {
+        const keptPhotos = prev.filter((p) => p.kind === 'photo');
+        return [...keptPhotos, ...photos];
+      });
+      setSelected((prev) => {
+        const photoIdsNow = new Set(photos.map((p) => p.id));
+        // 카메라(1장)는 기존 선택에 누적, 갤러리(여러 장)는 새 묶음으로 교체
+        if (photos.length === 1) {
+          return [...prev.filter((id) => !photoIdsNow.has(id)), photos[0].id];
+        }
+        return photos.map((p) => p.id);
+      });
+      // 모든 사진에 대해 draft 생성 병렬. 첫 번째 사진의 분석 결과로 UI 자동 채움.
+      photos.forEach((p, i) => {
+        createDraftForPhoto(p, i === 0).catch(() => {});
+      });
+    },
+    [createDraftForPhoto],
+  );
+
+  const launchPicker = useCallback(async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('사진 접근 권한이 필요해요', '설정에서 권한을 허용해주세요.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        // quality<1은 Android에서 재인코딩 → EXIF 손실. 1로 두면 파일 원본 그대로.
+        quality: 1,
+        // exif 옵션은 picker가 마스킹할 수 있어서 그대로 신뢰하지 않음.
+        // 백업으로 readExifFromFile()가 파일 바이트에서 직접 EXIF를 읽음.
+        exif: true,
+        selectionLimit: 9,
+      });
+      if (result.canceled) return;
+      ingestAssets(result.assets);
+    } catch (e) {
+      Alert.alert('사진을 불러오지 못했어요', e?.message || '');
+    }
+  }, [ingestAssets]);
+
+  const launchCamera = useCallback(async () => {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('카메라 권한이 필요해요', '설정에서 카메라 권한을 허용해주세요.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        // quality<1은 Android에서 재인코딩 → EXIF/GPS 손실
+        quality: 1,
+        exif: true,
+        // 기본 카메라 UI 사용. 편집은 false (편집 켜면 EXIF가 손상되는 케이스가 있음)
+        allowsEditing: false,
+      });
+      if (result.canceled) return;
+      ingestAssets(result.assets);
+    } catch (e) {
+      Alert.alert('카메라를 열지 못했어요', e?.message || '');
+    }
+  }, [ingestAssets]);
+
+
+  const handleSave = async () => {
+    if (saving) return;
+    const photos = selectedItems.filter((p) => p.kind === 'photo');
+
+    // 사진을 한 장도 안 골랐으면 mock placeholder만 있는 상태 → 로컬에만 추가하고 종료 (디자인 모드)
+    if (photos.length === 0) {
+      const mockItems = selectedItems.filter((p) => p.kind === 'mock');
+      if (mockItems.length === 0) {
+        navigation?.goBack?.();
+        return;
+      }
+      const first = mockItems[0];
+      addMemory({
+        emoji: first.emoji,
+        tag: activeTagSlugs[0] ? `#${activeTagSlugs[0]}` : '#기록',
+        place: place.trim() || '미지정',
+        date: formatDate(pickedDate),
+        tint: first.tint,
+        mood: MOOD_TO_GROUP[mood] ?? 'love',
+        title: title.trim(),
+        memo: memo.trim(),
+        shared: shareWithPartner,
+        createdAt: Date.now(),
+      });
       navigation?.goBack?.();
       return;
     }
-    const firstTagId = activeTags[0];
-    const tagOption = TAG_OPTIONS.find((t) => t.id === firstTagId);
-    const first = selectedItems[0];
-    addMemory({
-      emoji: first.emoji,
-      tag: tagOption ? `#${tagOption.label}` : '#기록',
-      place: place.trim() || '미지정',
-      date: formatDate(pickedDate),
-      tint: first.tint,
-      mood: MOOD_TO_GROUP[mood] ?? 'love',
-      title: title.trim(),
-      memo: memo.trim(),
-      shared: shareWithPartner,
-      createdAt: Date.now(),
+
+    setSaving(true);
+    try {
+      const noteParts = [title.trim(), memo.trim()].filter(Boolean);
+      const note = noteParts.length > 0 ? noteParts.join('\n') : null;
+
+      // 각 사진: pick 직후 만들어둔 draft가 있으면 PATCH로 마무리. 없으면 (네트워크 실패 등) 새로 create.
+      const results = await Promise.all(
+        photos.map(async (photo) => {
+          let draft = drafts[photo.id];
+          if (!draft) {
+            draft = await createDraftForPhoto(photo, false);
+            if (!draft) throw new Error('사진 업로드 실패');
+          }
+          try {
+            const patched = await updateQuickMemory(draft.id, {
+              note,
+              userTags: activeTagSlugs,
+            });
+            return patched ?? draft;
+          } catch (_) {
+            // PATCH 실패해도 메모리는 이미 생성됐으므로 draft 자체는 반환
+            return draft;
+          }
+        }),
+      );
+
+      savedRef.current = true;
+
+      // 로컬 컨텍스트에도 즉시 반영 (앨범 화면이 BE refresh되기 전까지 임시 표시)
+      const first = photos[0];
+      addMemory({
+        emoji: '📸',
+        photoUri: first.uri,
+        tag: activeTagSlugs[0] ? `#${activeTagSlugs[0]}` : '#기록',
+        place: place.trim() || '미지정',
+        date: formatDate(pickedDate),
+        tint: '#FFE4EE',
+        mood: MOOD_TO_GROUP[mood] ?? 'love',
+        title: title.trim(),
+        memo: memo.trim(),
+        shared: shareWithPartner,
+        createdAt: Date.now(),
+        backendIds: results.map((r) => r.id),
+      });
+
+      // BE에서 최신 앨범 동기화 (best-effort)
+      refresh?.().catch(() => {});
+
+      navigation?.goBack?.();
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e?.message || '추억 저장에 실패했어요';
+      Alert.alert('저장 실패', msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const togglePhoto = useCallback(
+    async (id) => {
+      const isSelecting = !selected.includes(id);
+      setSelected((prev) =>
+        prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id],
+      );
+      if (!isSelecting) return;
+
+      // media-library 아이템(`ml-` 접두사)이면 full info 가져와서 location/exif 보강 후 draft 생성
+      const item = library.find((p) => p.id === id);
+      if (!item || item.kind !== 'photo') return;
+      // 이미 draft가 있으면 재요청하지 않음
+      if (draftsRef.current[id]) return;
+
+      let enriched = item;
+      if (id.startsWith('ml-')) {
+        try {
+          const assetId = id.slice(3);
+          const info = await MediaLibrary.getAssetInfoAsync(assetId, {
+            shouldDownloadFromNetwork: false,
+          });
+          enriched = mediaAssetToPhotoItem({ ...item, id: assetId }, info);
+          enriched.id = id; // 우리 내부 id는 유지
+          setLibrary((prev) => prev.map((p) => (p.id === id ? enriched : p)));
+        } catch (e) {
+          if (__DEV__)
+            console.log('[PhotoUpload] getAssetInfoAsync failed:', e?.message);
+        }
+      }
+
+      // 첫 번째로 선택된 사진이면 UI 자동 채움 트리거
+      const isFirst = selected.length === 0;
+      createDraftForPhoto(enriched, isFirst).catch(() => {});
+    },
+    [selected, library, createDraftForPhoto],
+  );
+
+  const toggleTag = (slug) => {
+    setActiveTagSlugs((prev) =>
+      prev.includes(slug) ? prev.filter((t) => t !== slug) : [...prev, slug],
+    );
+  };
+
+  // 마운트 시 디바이스 갤러리에서 최근 사진들을 가져와 그리드에 표시
+  const loadDeviceGallery = useCallback(async () => {
+    try {
+      // writeOnly=false (읽기), Android 13+ 의 'photo' granular 권한 요청
+      const perm = await MediaLibrary.requestPermissionsAsync(false, ['photo']);
+      const ok =
+        perm?.granted ||
+        perm?.accessPrivileges === 'all' ||
+        perm?.accessPrivileges === 'limited';
+      if (__DEV__) console.log('[PhotoUpload] media perm:', perm);
+      if (!ok) {
+        // 권한 거부 — placeholder 유지, 사용자가 "갤러리" 탭으로 picker 띄울 수 있게
+        return;
+      }
+      const page = await MediaLibrary.getAssetsAsync({
+        // 3x3 그리드용 최근 9장. "더 추가" 누르면 시스템 picker로 더 가져올 수 있음.
+        first: 9,
+        mediaType: 'photo',
+        sortBy: [['creationTime', false]],
+      });
+      if (!page?.assets?.length) return;
+
+      const photoItems = page.assets.map((a) => mediaAssetToPhotoItem(a, null));
+      setLibrary(photoItems);
+      if (__DEV__) console.log('[PhotoUpload] gallery loaded:', photoItems.length);
+    } catch (e) {
+      if (__DEV__) console.log('[PhotoUpload] loadDeviceGallery failed:', e?.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadDeviceGallery();
+  }, [loadDeviceGallery]);
+
+  // 저장하지 않은 draft 정리 (취소/뒤로/unmount 시 orphan 방지)
+  const cleanupUnsavedDrafts = useCallback(() => {
+    if (savedRef.current) return; // 저장 완료 → 정리 안 함
+    const ids = Object.values(draftsRef.current).map((d) => d?.id).filter(Boolean);
+    if (ids.length === 0) return;
+    // best-effort, 결과 무시
+    ids.forEach((id) => {
+      apiDeleteMemory(id).catch(() => {});
     });
+    // 호출 후 클리어해서 중복 호출 방지
+    draftsRef.current = {};
+    savedRef.current = true;
+  }, []);
+
+  // unmount 시 정리
+  useEffect(() => {
+    return () => {
+      cleanupUnsavedDrafts();
+    };
+  }, [cleanupUnsavedDrafts]);
+
+  // 명시적 취소 → 정리 후 뒤로
+  const handleCancel = useCallback(() => {
+    cleanupUnsavedDrafts();
     navigation?.goBack?.();
+  }, [cleanupUnsavedDrafts, navigation]);
+
+  const handleSourceTap = (key) => {
+    setSource(key);
+    if (key === 'gallery') {
+      launchPicker();
+    } else if (key === 'camera') {
+      launchCamera();
+    } else if (key === 'drive') {
+      Alert.alert('알림', '드라이브 연동은 다음 스프린트에 추가됩니다.');
+    }
   };
 
-  const togglePhoto = (id) => {
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id],
-    );
-  };
-
-  const toggleTag = (id) => {
-    setActiveTags((prev) =>
-      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
-    );
-  };
-
-  const goBack = () => navigation?.goBack?.();
+  // 앱바의 ‹ 버튼과 취소 버튼 모두 같은 cleanup 경유
+  const goBack = handleCancel;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
@@ -170,14 +738,28 @@ export default function PhotoUpload({ navigation }) {
             contentContainerStyle={styles.selectedRow}
           >
             {selectedItems.map((p, i) => (
-              <View key={p.id} style={[styles.selectedThumb, { backgroundColor: p.tint }]}>
-                <Text style={styles.selectedEmoji}>{p.emoji}</Text>
+              <View
+                key={p.id}
+                style={[
+                  styles.selectedThumb,
+                  { backgroundColor: p.tint || '#F5F5F5' },
+                ]}
+              >
+                {p.kind === 'photo' ? (
+                  <Image source={{ uri: p.uri }} style={styles.selectedImage} />
+                ) : (
+                  <Text style={styles.selectedEmoji}>{p.emoji}</Text>
+                )}
                 <View style={styles.selectedBadge}>
                   <Text style={styles.selectedBadgeText}>{i + 1}</Text>
                 </View>
               </View>
             ))}
-            <TouchableOpacity style={styles.addMoreBtn} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.addMoreBtn}
+              activeOpacity={0.8}
+              onPress={launchPicker}
+            >
               <Text style={styles.addMoreIcon}>＋</Text>
               <Text style={styles.addMoreText}>더 추가</Text>
             </TouchableOpacity>
@@ -191,7 +773,7 @@ export default function PhotoUpload({ navigation }) {
                 <TouchableOpacity
                   key={s.key}
                   activeOpacity={0.85}
-                  onPress={() => setSource(s.key)}
+                  onPress={() => handleSourceTap(s.key)}
                   style={styles.sourceTabActiveWrap}
                 >
                   <LinearGradient
@@ -208,7 +790,7 @@ export default function PhotoUpload({ navigation }) {
                 <TouchableOpacity
                   key={s.key}
                   activeOpacity={0.7}
-                  onPress={() => setSource(s.key)}
+                  onPress={() => handleSourceTap(s.key)}
                   style={styles.sourceTab}
                 >
                   <Text style={styles.sourceIcon}>{s.icon}</Text>
@@ -232,7 +814,7 @@ export default function PhotoUpload({ navigation }) {
                   style={[
                     styles.gridCell,
                     {
-                      backgroundColor: p.tint,
+                      backgroundColor: p.tint || '#F5F5F5',
                       width: cellSize,
                       height: cellSize,
                       marginRight: isLastCol ? 0 : GRID_GAP,
@@ -240,7 +822,11 @@ export default function PhotoUpload({ navigation }) {
                     },
                   ]}
                 >
-                  <Text style={styles.gridEmoji}>{p.emoji}</Text>
+                  {p.kind === 'photo' ? (
+                    <Image source={{ uri: p.uri }} style={styles.gridImage} />
+                  ) : (
+                    <Text style={styles.gridEmoji}>{p.emoji}</Text>
+                  )}
                   {isOn ? (
                     <>
                       <View style={styles.gridSelectedBorder} />
@@ -296,21 +882,26 @@ export default function PhotoUpload({ navigation }) {
             </View>
 
             <View style={styles.tagWrap}>
-              {TAG_OPTIONS.map((t) => {
-                const on = activeTags.includes(t.id);
+              {allTagSlugs.map((slug) => {
+                const on = activeTagSlugs.includes(slug);
                 return (
                   <TouchableOpacity
-                    key={t.id}
+                    key={slug}
                     activeOpacity={0.7}
-                    onPress={() => toggleTag(t.id)}
+                    onPress={() => toggleTag(slug)}
                     style={[styles.chip, on ? styles.chipOn : styles.chipOff]}
                   >
                     <Text style={[styles.chipText, on ? styles.chipTextOn : styles.chipTextOff]}>
-                      #{t.label}
+                      #{slug}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
+              {analyzing && (
+                <View style={[styles.chip, styles.chipOff]}>
+                  <ActivityIndicator size="small" color={colors.pink} />
+                </View>
+              )}
               <TouchableOpacity activeOpacity={0.7} style={[styles.chip, styles.chipOff]}>
                 <Text style={[styles.chipText, styles.chipTextOff]}>+ 태그</Text>
               </TouchableOpacity>
@@ -390,7 +981,12 @@ export default function PhotoUpload({ navigation }) {
         </ScrollView>
 
         {/* Save bar */}
-        <View style={styles.saveBar}>
+        <View
+          style={[
+            styles.saveBar,
+            { paddingBottom: 12 + Math.max(insets.bottom, 0) },
+          ]}
+        >
           <TouchableOpacity
             activeOpacity={0.7}
             onPress={goBack}
@@ -401,6 +997,7 @@ export default function PhotoUpload({ navigation }) {
           <TouchableOpacity
             activeOpacity={0.85}
             onPress={handleSave}
+            disabled={saving}
             style={styles.saveBtnWrap}
           >
             <LinearGradient
@@ -409,8 +1006,14 @@ export default function PhotoUpload({ navigation }) {
               end={{ x: 1, y: 1 }}
               style={styles.saveBtn}
             >
-              <Text style={styles.saveHeart}>♥</Text>
-              <Text style={styles.saveText}>추억 저장하기</Text>
+              {saving ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Text style={styles.saveHeart}>♥</Text>
+                  <Text style={styles.saveText}>추억 저장하기</Text>
+                </>
+              )}
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -472,6 +1075,10 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   selectedEmoji: { fontSize: 36, opacity: 0.75 },
+  selectedImage: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 12,
+  },
   selectedBadge: {
     position: 'absolute',
     top: 5,
@@ -548,6 +1155,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   gridEmoji: { fontSize: 36, opacity: 0.7 },
+  gridImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
   gridSelectedBorder: {
     ...StyleSheet.absoluteFillObject,
     borderWidth: 3,

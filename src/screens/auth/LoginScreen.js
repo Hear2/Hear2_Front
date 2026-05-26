@@ -28,15 +28,18 @@ import endpoints from '../../constants/endpoints';
 // OAuth 결과를 받기 위해 웹 브라우저 세션을 마무리.
 WebBrowser.maybeCompleteAuthSession();
 
-const GOOGLE_OAUTH_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_ID;
+// 기존 Web client (Expo Go용, 또는 BE가 verify할 audience용)
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_ID;
+// 새로 추가: Android 네이티브용 OAuth client (dev build/standalone에서 사용).
+// Google Cloud Console에서 Android 타입 client 생성 (package=com.hear2.app, SHA-1=APK 키스토어 fingerprint).
+const GOOGLE_ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
 const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY;
 const KAKAO_AUTH_URL = 'https://kauth.kakao.com/oauth/authorize';
 const KAKAO_TOKEN_URL = 'https://kauth.kakao.com/oauth/token';
 
-// Expo Go에서 OAuth 동작을 위한 프록시 URL.
-// Google/Kakao 콘솔 모두에 이 URL을 redirect URI로 등록해야 함.
-// 프로덕션(dev client 또는 standalone)에서는 scheme=hear2 기반 URL 사용 권장.
-const EXPO_AUTH_PROXY_URL = 'https://auth.expo.io/@anonymous/hear2-app';
+// Kakao는 Expo Go 시절 프록시 URL을 그대로 쓰기도 했지만 dev build에서는 scheme deep-link로 가야 한다.
+// (Kakao 콘솔의 redirect URI에 hear2://kakao-oauth 같은 값 추가 필요)
+const KAKAO_REDIRECT_URI_FALLBACK = 'https://auth.expo.io/@ukhee_dokey/hear2-app';
 
 const GoogleIcon = () => (
   <Svg width={20} height={20} viewBox="0 0 24 24">
@@ -84,16 +87,25 @@ const LoginScreen = ({ navigation }) => {
   const [error, setError] = useState(null);
   const { signIn, loadMe } = useAuth();
 
-  // Google OAuth: id_token 흐름 (백엔드 GoogleOAuthLoginRequest에 idToken 필드)
-  // Expo Go에서는 프록시 URL을 redirectUri로 사용
+  // Google OAuth — dev build에서는 androidClientId(네이티브)가 필수.
+  // 아직 등록 안 됐으면 webClientId로 fallback (실제 로그인은 audience 불일치로 실패하지만 화면 크래시는 막음).
+  // expo-auth-session이 런타임을 감지해서 redirect URI를 자동 생성:
+  //   - dev build/standalone Android: hear2:// scheme deep-link
+  //   - Expo Go: auth.expo.io 프록시 (deprecated, SDK 53+에서 제약 많음)
+  const googleAndroidClientResolved =
+    GOOGLE_ANDROID_CLIENT_ID || GOOGLE_WEB_CLIENT_ID || 'placeholder-not-configured';
   const [googleRequest, googleResponse, promptGoogle] = Google.useAuthRequest({
-    clientId: GOOGLE_OAUTH_CLIENT_ID,
+    androidClientId: googleAndroidClientResolved,
+    webClientId: GOOGLE_WEB_CLIENT_ID || googleAndroidClientResolved,
     scopes: ['openid', 'profile', 'email'],
-    redirectUri: EXPO_AUTH_PROXY_URL,
+    // BE는 id_token만 검증하므로 idToken 응답을 우선
+    responseType: 'id_token',
   });
+  // 실제 Android client ID가 없으면 로그인 시도 시 안내
+  const googleAndroidMissing = !GOOGLE_ANDROID_CLIENT_ID;
 
-  // Kakao OAuth: REST 흐름. 프록시 URL 사용 (Kakao 콘솔에 등록 필요).
-  const kakaoRedirectUri = EXPO_AUTH_PROXY_URL;
+  // Kakao OAuth: dev build에서도 scheme deep-link 필요 — Kakao 콘솔에 hear2://kakao-oauth 등록 필요
+  const kakaoRedirectUri = KAKAO_REDIRECT_URI_FALLBACK;
 
   const routeAfterSignIn = (connected) => {
     if (connected) {
@@ -144,6 +156,12 @@ const LoginScreen = ({ navigation }) => {
   const handleGoogleLogin = async () => {
     if (oauthLoading) return;
     setError(null);
+    if (googleAndroidMissing) {
+      setError(
+        'Google 로그인 설정이 아직 완료되지 않았어요. Google Cloud Console에서 Android 클라이언트를 등록하고 .env에 EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID를 추가한 뒤 Metro를 재시작해주세요.',
+      );
+      return;
+    }
     if (!googleRequest) {
       setError('Google 로그인을 준비 중이에요. 잠시 후 다시 시도해주세요.');
       return;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,12 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
+import { fetchCalendar, fetchMemoriesByDate } from '../../api/memoryAPI';
 
 const PINK = '#FF6B9D';
 const PINK_TINT = '#FDF0F5';
@@ -16,42 +20,139 @@ const INK_MUTE = '#AAAAAA';
 
 const DAYS_OF_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 
-// Sample memory data: days in April 2026 that have memories
-const MEMORY_DAYS = {
-  3: [
-    { id: '1', title: '카페에서 커피 한 잔', time: '14:30', hasPhoto: true },
-  ],
-  7: [
-    { id: '2', title: '한강 산책', time: '18:00', hasPhoto: true },
-    { id: '3', title: '같이 만든 저녁', time: '20:30', hasPhoto: false },
-  ],
-  14: [
-    { id: '4', title: '발렌타인 데이트', time: '12:00', hasPhoto: true },
-  ],
-  20: [
-    { id: '5', title: '결혼식 참석', time: '11:00', hasPhoto: true },
-  ],
-  25: [
-    { id: '6', title: '영화 관람', time: '19:00', hasPhoto: false },
-  ],
-};
+// "2026-05-25" 형태로 직렬화 (Date → ISO YMD)
+function ymd(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
-// April 2026 starts Wednesday (index 3), 30 days
-const MONTH_START_INDEX = 3;
-const DAYS_IN_MONTH = 30;
+function daysInMonth(year, month /* 1-12 */) {
+  return new Date(year, month, 0).getDate();
+}
+
+function startWeekday(year, month) {
+  // 0(일) ~ 6(토)
+  return new Date(year, month - 1, 1).getDay();
+}
+
+function formatTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 
 export default function MemoryCalendar({ navigation }) {
-  const [selectedDay, setSelectedDay] = useState(7);
+  const today = useMemo(() => new Date(), []);
+  const [year, setYear] = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth() + 1);
+  const [selectedDay, setSelectedDay] = useState(today.getDate());
+
+  // BE에서 받은 달력 데이터: { "2026-05-15": { memoryCount, thumbnails, dominantEmoji }, ... }
+  const [calendarDays, setCalendarDays] = useState({});
+  const [calendarLoading, setCalendarLoading] = useState(false);
+
+  // 선택한 날짜의 메모리 목록 (MemoryResponse[])
+  const [dayMemories, setDayMemories] = useState([]);
+  const [dayLoading, setDayLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const monthStart = startWeekday(year, month);
+  const daysCount = daysInMonth(year, month);
+
+  const loadCalendar = useCallback(async () => {
+    setCalendarLoading(true);
+    try {
+      const res = await fetchCalendar(year, month);
+      const map = {};
+      (res?.days || []).forEach((d) => {
+        // d.date는 "yyyy-MM-dd"
+        map[d.date] = d;
+      });
+      setCalendarDays(map);
+    } catch (_) {
+      setCalendarDays({});
+    } finally {
+      setCalendarLoading(false);
+    }
+  }, [year, month]);
+
+  const loadDay = useCallback(async (date) => {
+    setDayLoading(true);
+    try {
+      const list = await fetchMemoriesByDate(date);
+      setDayMemories(list || []);
+    } catch (_) {
+      setDayMemories([]);
+    } finally {
+      setDayLoading(false);
+    }
+  }, []);
+
+  // 월 바뀌면 캘린더 재조회
+  useEffect(() => {
+    loadCalendar();
+  }, [loadCalendar]);
+
+  // 선택일 바뀌면 그 날 메모리 재조회
+  useEffect(() => {
+    const dateStr = ymd(new Date(year, month - 1, selectedDay));
+    loadDay(dateStr);
+  }, [year, month, selectedDay, loadDay]);
+
+  // 화면 포커스 시 (업로드 후 돌아온 경우 등) 최신화
+  useFocusEffect(
+    useCallback(() => {
+      loadCalendar();
+      const dateStr = ymd(new Date(year, month - 1, selectedDay));
+      loadDay(dateStr);
+    }, [loadCalendar, loadDay, year, month, selectedDay]),
+  );
+
+  const onPullRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        loadCalendar(),
+        loadDay(ymd(new Date(year, month - 1, selectedDay))),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadCalendar, loadDay, year, month, selectedDay]);
+
+  const gotoPrevMonth = () => {
+    if (month === 1) {
+      setYear(year - 1);
+      setMonth(12);
+    } else {
+      setMonth(month - 1);
+    }
+    setSelectedDay(1);
+  };
+
+  const gotoNextMonth = () => {
+    if (month === 12) {
+      setYear(year + 1);
+      setMonth(1);
+    } else {
+      setMonth(month + 1);
+    }
+    setSelectedDay(1);
+  };
 
   const renderCalendarCells = () => {
     const cells = [];
-    const totalCells = 35;
+    const totalCells = Math.ceil((monthStart + daysCount) / 7) * 7;
 
     for (let i = 0; i < totalCells; i++) {
-      const dayNum = i - MONTH_START_INDEX + 1;
-      const isValid = dayNum >= 1 && dayNum <= DAYS_IN_MONTH;
-      const isSelected = dayNum === selectedDay;
-      const hasMemory = MEMORY_DAYS[dayNum];
+      const dayNum = i - monthStart + 1;
+      const isValid = dayNum >= 1 && dayNum <= daysCount;
+      const isSelected = isValid && dayNum === selectedDay;
+      const dateStr = isValid ? ymd(new Date(year, month - 1, dayNum)) : null;
+      const hasMemory = isValid && calendarDays[dateStr];
 
       cells.push(
         <TouchableOpacity
@@ -87,7 +188,9 @@ export default function MemoryCalendar({ navigation }) {
     return cells;
   };
 
-  const selectedMemories = MEMORY_DAYS[selectedDay] || [];
+  const onTapMemory = (memory) => {
+    navigation?.navigate?.('PhotoDetail', { memory });
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -103,9 +206,33 @@ export default function MemoryCalendar({ navigation }) {
         <View style={styles.headerRight} />
       </View>
 
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        {/* Month title */}
-        <Text style={styles.monthTitle}>2026년 4월</Text>
+      <ScrollView
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onPullRefresh}
+            tintColor={PINK}
+            colors={[PINK]}
+          />
+        }
+      >
+        {/* Month nav + title */}
+        <View style={styles.monthNavRow}>
+          <TouchableOpacity onPress={gotoPrevMonth} hitSlop={8}>
+            <Text style={styles.monthNavChev}>‹</Text>
+          </TouchableOpacity>
+          <Text style={styles.monthTitle}>
+            {year}년 {month}월
+            {calendarLoading && (
+              <Text style={styles.monthLoading}>  …</Text>
+            )}
+          </Text>
+          <TouchableOpacity onPress={gotoNextMonth} hitSlop={8}>
+            <Text style={styles.monthNavChev}>›</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Week header */}
         <View style={styles.weekHeader}>
@@ -122,27 +249,47 @@ export default function MemoryCalendar({ navigation }) {
         {/* Selected day memories */}
         <View style={styles.memoriesSection}>
           <Text style={styles.memoriesTitle}>
-            4월 {selectedDay}일의 추억
+            {month}월 {selectedDay}일의 추억
           </Text>
-          {selectedMemories.length === 0 ? (
+          {dayLoading ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator color={PINK} />
+            </View>
+          ) : dayMemories.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>📷</Text>
               <Text style={styles.emptyText}>이 날의 추억이 없어요</Text>
-              <TouchableOpacity style={styles.emptyBtn}>
+              <TouchableOpacity
+                style={styles.emptyBtn}
+                onPress={() => navigation?.navigate?.('PhotoUpload')}
+              >
                 <Text style={styles.emptyBtnText}>추억 추가하기</Text>
               </TouchableOpacity>
             </View>
           ) : (
-            selectedMemories.map((memory) => (
-              <TouchableOpacity key={memory.id} style={styles.memoryCard}>
-                {memory.hasPhoto && (
+            dayMemories.map((memory) => (
+              <TouchableOpacity
+                key={memory.id}
+                style={styles.memoryCard}
+                onPress={() => onTapMemory(memory)}
+              >
+                {memory.photoUrl ? (
+                  <Image
+                    source={{ uri: memory.photoUrl }}
+                    style={styles.photoThumb}
+                  />
+                ) : (
                   <View style={styles.photoPlaceholder}>
                     <Text style={styles.photoIcon}>🖼️</Text>
                   </View>
                 )}
                 <View style={styles.memoryInfo}>
-                  <Text style={styles.memoryTitle}>{memory.title}</Text>
-                  <Text style={styles.memoryTime}>{memory.time}</Text>
+                  <Text style={styles.memoryTitle} numberOfLines={1}>
+                    {memory.memo || '제목 없음'}
+                  </Text>
+                  <Text style={styles.memoryTime}>
+                    {formatTime(memory.metadata?.takenAt || memory.createdAt)}
+                  </Text>
                 </View>
                 <Text style={styles.memoryArrow}>›</Text>
               </TouchableOpacity>
@@ -195,8 +342,24 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: INK,
+  },
+  monthLoading: {
+    fontSize: 14,
+    color: INK_MUTE,
+  },
+  monthNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: 20,
     marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  monthNavChev: {
+    fontSize: 26,
+    color: INK,
+    fontWeight: '300',
+    paddingHorizontal: 12,
   },
   weekHeader: {
     flexDirection: 'row',
@@ -303,6 +466,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 14,
+  },
+  photoThumb: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
     marginRight: 14,
   },
   photoIcon: {

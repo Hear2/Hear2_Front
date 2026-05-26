@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,12 @@ import {
   TouchableOpacity,
   StyleSheet,
   TextInput,
+  Image,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
 import colors from '../../constants/colors';
 import { useMemories } from '../../contexts/MemoryContext';
 
@@ -25,10 +29,29 @@ const VIEW_MODES = [
 ];
 
 const AlbumScreen = ({ navigation }) => {
-  const { memories } = useMemories();
+  const { memories, loading, refresh } = useMemories();
   const [activeFilter, setActiveFilter] = useState('전체');
   const [viewMode, setViewMode] = useState('feed');
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // 화면 포커스 시 BE에서 앨범 동기화 (best-effort, 실패해도 시드/로컬 상태 유지)
+  useFocusEffect(
+    useCallback(() => {
+      refresh?.().catch(() => {});
+    }, [refresh]),
+  );
+
+  const onPullRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refresh?.();
+    } catch (_) {
+      // 에러는 무시 — 사용자가 재시도 가능
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refresh]);
 
   const currentMode = VIEW_MODES.find((m) => m.key === viewMode) ?? VIEW_MODES[0];
   const goAdd = () => navigation?.navigate?.('PhotoUpload');
@@ -144,7 +167,20 @@ const AlbumScreen = ({ navigation }) => {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.gridContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onPullRefresh}
+            tintColor={colors.pink}
+            colors={[colors.pink]}
+          />
+        }
       >
+        {loading && !refreshing && memories.length === 0 && (
+          <View style={styles.inlineLoader}>
+            <ActivityIndicator color={colors.pink} />
+          </View>
+        )}
         {viewMode === 'feed' ? (
           <FeedGrid items={filteredMemories} onPick={goDetail} />
         ) : (
@@ -191,11 +227,15 @@ const FeedGrid = ({ items, onPick }) => {
       onPress={() => onPick?.(m)}
       style={[styles.feedCard, { height: m.h, backgroundColor: m.tint }]}
     >
+      {m.photoUri ? (
+        <Image source={{ uri: m.photoUri }} style={styles.feedImage} />
+      ) : (
+        <View style={styles.feedEmojiWrap}>
+          <Text style={styles.feedEmoji}>{m.emoji}</Text>
+        </View>
+      )}
       <View style={styles.feedTagPill}>
         <Text style={styles.feedTagText}>{m.tag}</Text>
-      </View>
-      <View style={styles.feedEmojiWrap}>
-        <Text style={styles.feedEmoji}>{m.emoji}</Text>
       </View>
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.45)']}
@@ -244,7 +284,11 @@ const CategoryGrid = ({ groups, onPick }) => (
               onPress={() => onPick?.(m)}
               style={[styles.moodCard, { backgroundColor: g.tint }]}
             >
-              <Text style={styles.moodEmoji}>{m.emoji}</Text>
+              {m.photoUri ? (
+                <Image source={{ uri: m.photoUri }} style={styles.moodCardImage} />
+              ) : (
+                <Text style={styles.moodEmoji}>{m.emoji}</Text>
+              )}
               <View style={[styles.moodCardTag, { borderColor: g.color }]}>
                 <Text style={[styles.moodCardTagText, { color: g.color }]}>{m.tag}</Text>
               </View>
@@ -454,6 +498,13 @@ const styles = StyleSheet.create({
     fontSize: 48,
     opacity: 0.75,
   },
+  feedImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  inlineLoader: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
   feedFade: {
     position: 'absolute',
     bottom: 0,
@@ -511,6 +562,10 @@ const styles = StyleSheet.create({
   moodEmoji: {
     fontSize: 36,
     opacity: 0.8,
+  },
+  moodCardImage: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 12,
   },
   moodCardTag: {
     position: 'absolute',

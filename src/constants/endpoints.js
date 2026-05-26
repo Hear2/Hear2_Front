@@ -62,8 +62,25 @@ export default {
     ws: `${WS_URL}/ws`,
   },
   memory: {
-    list: `${BASE_URL}/memory`,
-    create: `${BASE_URL}/memory`,
+    // 앨범/상세 (REST resource)
+    album: `${BASE_URL}/api/v1/memories`,
+    item: (memoryId) => `${BASE_URL}/api/v1/memories/items/${memoryId}`,
+    photo: (memoryId) => `${BASE_URL}/api/v1/memories/items/${memoryId}/photo`,
+    byDateRest: (date) => `${BASE_URL}/api/v1/memories/dates/${date}`,
+
+    // 3초 기록 / 달력 (Memory Quick)
+    quickCreate: `${BASE_URL}/api/v1/memory/quick`,
+    quickUpdate: (id) => `${BASE_URL}/api/v1/memory/quick/${id}`,
+    calendar: (year, month) =>
+      `${BASE_URL}/api/v1/memory/calendar?year=${year}&month=${month}`,
+    byDate: (date) => `${BASE_URL}/api/v1/memory/by-date?date=${date}`,
+    yearAgo: `${BASE_URL}/api/v1/memory/year-ago`,
+
+    // AI 이미지 태깅
+    imageTags: `${BASE_URL}/api/v1/ai/image-tags`,
+  },
+  media: {
+    presignedUrl: `${BASE_URL}/api/v1/media/presigned-url`,
   },
   calendar: {
     events: `${BASE_URL}/calendar/events`,

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as Notifications from 'expo-notifications';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
 import Chip from '../../components/common/Chip';
@@ -48,6 +49,27 @@ const moodFromEmotion = (msg) => {
   return map[msg.emotionType] ?? null;
 };
 
+// BE 정책 그대로 미러:
+//  - riskLevel >= WARNING 이거나 negativeScore >= 0.70 이면 AI 판사 호출 가능
+//  - BE가 msg.judgeAvailable을 채워주지만, FE에서도 같은 식으로 계산해 일관성 보장
+const RISK_SEVERITY = { NONE: 0, CAUTION: 1, WARNING: 2, DANGER: 3 };
+const NEGATIVE_THRESHOLD = 0.7;
+function isJudgeAvailable(msg) {
+  if (!msg) return false;
+  if (msg.judgeAvailable === true) return true;
+  const sev = RISK_SEVERITY[msg.riskLevel] ?? 0;
+  if (sev >= RISK_SEVERITY.WARNING) return true;
+  if ((msg.negativeScore ?? 0) >= NEGATIVE_THRESHOLD) return true;
+  return false;
+}
+
+// DANGER 메시지 도착 시 띄울 인앱 배너 라벨
+function riskBannerLabel(msg) {
+  if (msg?.riskLevel === 'DANGER') return '🚨 위험 신호가 감지됐어요';
+  if (msg?.riskLevel === 'WARNING') return '⚠️ 부정 감정이 강하게 감지됐어요';
+  return '💬 AI 판사 호출이 권장되는 메시지가 있어요';
+}
+
 const formatHHMM = (iso) => {
   if (!iso) return '';
   const d = new Date(iso);
@@ -68,6 +90,10 @@ const ChatScreen = ({ navigation }) => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null); // 이미지 풀스크린 미리보기
+  // 위험 메시지 인앱 배너
+  const [riskBanner, setRiskBanner] = useState(null); // { msg } | null
+  // 이미 알림을 띄운 judgeAvailable 메시지 id들 (중복 방지)
+  const notifiedIdsRef = useRef(new Set());
 
   const scrollRef = useRef(null);
   const pollRef = useRef(null);
@@ -106,6 +132,49 @@ const ChatScreen = ({ navigation }) => {
       }
     };
   }, [loadMessages]);
+
+  // judgeAvailable 메시지의 가장 최근 id — AI 판사 버튼 활성화 여부 결정
+  const latestJudgeAvailable = useMemo(
+    () => [...messages].reverse().find((m) => isJudgeAvailable(m)) || null,
+    [messages],
+  );
+
+  // 새 위험 메시지(judgeAvailable=true) 감지 → 인앱 배너 + 로컬 알림
+  // 본인 발신/수신 둘 다 포함. (BE의 의도는 수신자 보호이지만, 테스트 편의 + 발신자 자기 인식 둘 다 유용)
+  useEffect(() => {
+    if (!messages?.length) return;
+    if (__DEV__) {
+      const last = messages[messages.length - 1];
+      console.log('[ChatScreen] latest msg meta:', {
+        id: last?.id,
+        content: last?.content?.slice(0, 30),
+        emotionType: last?.emotionType,
+        negativeScore: last?.negativeScore,
+        riskLevel: last?.riskLevel,
+        judgeAvailable: last?.judgeAvailable,
+      });
+    }
+    const risks = messages.filter(
+      (m) => isJudgeAvailable(m) && !notifiedIdsRef.current.has(m.id),
+    );
+    if (!risks.length) return;
+    const latest = risks[risks.length - 1];
+    risks.forEach((m) => notifiedIdsRef.current.add(m.id));
+
+    // 인앱 배너
+    setRiskBanner({ msg: latest });
+
+    // 로컬 알림 (앱이 백그라운드일 때 사용자에게 도달)
+    Notifications.scheduleNotificationAsync({
+      content: {
+        title: latest.riskLevel === 'DANGER' ? '🚨 대화 위험 감지' : '⚠️ AI 판사 호출 권장',
+        body: '상대방의 메시지에 부정/위험 신호가 감지됐어요. AI 판사를 호출해 보세요.',
+        data: { type: 'CHAT_RISK_ALERT', messageId: latest.id },
+        sound: 'default',
+      },
+      trigger: null, // 즉시
+    }).catch(() => {});
+  }, [messages, myId]);
 
   const handleSend = async () => {
     const text = draft.trim();
@@ -190,26 +259,51 @@ const ChatScreen = ({ navigation }) => {
         </View>
         <TouchableOpacity
           onPress={() => {
-            // 가장 최근 judgeAvailable=true 메시지 찾음. 없으면 마지막 메시지로 시도.
-            // BE는 negativeScore>=0.7 또는 riskLevel>=WARNING인 메시지만 허용 → 그 외엔 400.
-            const triggerable = [...messages].reverse().find((m) => m.judgeAvailable);
-            const triggerMessageId =
-              triggerable?.id ?? messages[messages.length - 1]?.id ?? null;
-            if (!triggerMessageId) {
-              setError('아직 대화가 없어요.');
+            if (!latestJudgeAvailable) {
+              setError('AI 판사는 위험 감정이 감지된 메시지가 있을 때만 호출할 수 있어요.');
               return;
             }
             navigation?.navigate('AIJudgeModal', {
-              triggerMessageId,
+              triggerMessageId: latestJudgeAvailable.id,
               myId,
             });
           }}
-          activeOpacity={0.7}
+          activeOpacity={latestJudgeAvailable ? 0.7 : 1}
           hitSlop={8}
         >
-          <Chip label="AI판사" variant="pink" />
+          <Chip
+            label="AI판사"
+            variant={latestJudgeAvailable ? 'pink' : 'gray'}
+          />
         </TouchableOpacity>
       </View>
+
+      {riskBanner && (
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => {
+            navigation?.navigate('AIJudgeModal', {
+              triggerMessageId: riskBanner.msg.id,
+              myId,
+            });
+            setRiskBanner(null);
+          }}
+          style={styles.riskBanner}
+        >
+          <Text style={styles.riskBannerText}>
+            {riskBannerLabel(riskBanner.msg)} · AI판사 호출 →
+          </Text>
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation?.();
+              setRiskBanner(null);
+            }}
+            hitSlop={8}
+          >
+            <Text style={styles.riskBannerClose}>✕</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      )}
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -402,6 +496,28 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.bgApp,
+  },
+  riskBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#FFE4E4',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FFB8B8',
+  },
+  riskBannerText: {
+    flex: 1,
+    color: colors.heartRed,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  riskBannerClose: {
+    color: colors.heartRed,
+    fontSize: 14,
+    fontWeight: '700',
+    paddingHorizontal: 6,
   },
   // Header
   header: {
