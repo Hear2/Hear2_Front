@@ -9,11 +9,14 @@ import {
   Image,
   RefreshControl,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import colors from '../../constants/colors';
 import { useMemories } from '../../contexts/MemoryContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { buildPhotoSource } from '../../utils/imageSource';
 
 const filters = ['전체', '데이트', '여행', '음식', '집', '기념일'];
 
@@ -29,11 +32,15 @@ const VIEW_MODES = [
 ];
 
 const AlbumScreen = ({ navigation }) => {
-  const { memories, loading, refresh } = useMemories();
+  const { memories, loading, refresh, removeMemories } = useMemories();
+  const { accessToken } = useAuth();
   const [activeFilter, setActiveFilter] = useState('전체');
   const [viewMode, setViewMode] = useState('feed');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // 다중 선택 모드
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
 
   // 화면 포커스 시 BE에서 앨범 동기화 (best-effort, 실패해도 시드/로컬 상태 유지)
   useFocusEffect(
@@ -57,6 +64,55 @@ const AlbumScreen = ({ navigation }) => {
   const goAdd = () => navigation?.navigate?.('PhotoUpload');
   const goDetail = (memory) => navigation?.navigate?.('PhotoDetail', { memory });
 
+  const enterSelection = () => {
+    setSelectionMode(true);
+    setSelectedIds(new Set());
+  };
+  const exitSelection = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+  const toggleSelect = useCallback((m) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(m.id)) next.delete(m.id);
+      else next.add(m.id);
+      return next;
+    });
+  }, []);
+  // 선택 모드면 카드 탭 = 선택 토글, 아니면 상세로 이동.
+  const onCardPress = useCallback(
+    (m) => {
+      if (selectionMode) toggleSelect(m);
+      else goDetail(m);
+    },
+    [selectionMode, toggleSelect],
+  );
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    const targets = memories.filter((m) => selectedIds.has(m.id));
+    Alert.alert(
+      '추억 삭제',
+      `${targets.length}개의 추억을 삭제할까요?`,
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: async () => {
+            exitSelection();
+            try {
+              await removeMemories(targets);
+            } catch (_) {
+              // 낙관적 제거는 이미 반영됨. BE 동기화는 다음 새로고침에서 보정.
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const filteredMemories = useMemo(() => {
     if (activeFilter === '전체') return memories;
     return memories.filter((m) => m.tag === `#${activeFilter}`);
@@ -78,9 +134,11 @@ const AlbumScreen = ({ navigation }) => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>추억 앨범</Text>
-        <TouchableOpacity onPress={goAdd}>
-          <Text style={styles.addBtn}>+ 추가</Text>
+        <Text style={styles.headerTitle}>
+          {selectionMode ? `${selectedIds.size}개 선택` : '추억 앨범'}
+        </Text>
+        <TouchableOpacity onPress={selectionMode ? exitSelection : enterSelection}>
+          <Text style={styles.addBtn}>{selectionMode ? '취소' : '선택'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -182,9 +240,21 @@ const AlbumScreen = ({ navigation }) => {
           </View>
         )}
         {viewMode === 'feed' ? (
-          <FeedGrid items={filteredMemories} onPick={goDetail} />
+          <FeedGrid
+            items={filteredMemories}
+            onPick={onCardPress}
+            selectionMode={selectionMode}
+            selectedIds={selectedIds}
+            token={accessToken}
+          />
         ) : (
-          <CategoryGrid groups={filteredMoodGroups} onPick={goDetail} />
+          <CategoryGrid
+            groups={filteredMoodGroups}
+            onPick={onCardPress}
+            selectionMode={selectionMode}
+            selectedIds={selectedIds}
+            token={accessToken}
+          />
         )}
         {((viewMode === 'feed' && filteredMemories.length === 0) ||
           (viewMode === 'category' && filteredMoodGroups.length === 0)) && (
@@ -193,17 +263,37 @@ const AlbumScreen = ({ navigation }) => {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      <TouchableOpacity style={styles.fab} activeOpacity={0.8} onPress={goAdd}>
-        <LinearGradient colors={[colors.pink, colors.heartRed]} style={styles.fabGradient}>
-          <Text style={styles.fabIcon}>+</Text>
-        </LinearGradient>
-      </TouchableOpacity>
+      {selectionMode ? (
+        <View style={styles.deleteBar}>
+          <TouchableOpacity
+            style={[
+              styles.deleteBtn,
+              selectedIds.size === 0 && styles.deleteBtnDisabled,
+            ]}
+            activeOpacity={0.85}
+            onPress={handleDeleteSelected}
+            disabled={selectedIds.size === 0}
+          >
+            <Text style={styles.deleteBtnText}>
+              {selectedIds.size > 0
+                ? `삭제 (${selectedIds.size})`
+                : '삭제할 항목 선택'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity style={styles.fab} activeOpacity={0.8} onPress={goAdd}>
+          <LinearGradient colors={[colors.pink, colors.heartRed]} style={styles.fabGradient}>
+            <Text style={styles.fabIcon}>+</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
 
 // Feed (Masonry-style 2-column with varied heights)
-const FeedGrid = ({ items, onPick }) => {
+const FeedGrid = ({ items, onPick, selectionMode, selectedIds, token }) => {
   const [left, right] = useMemo(() => {
     const l = [];
     const r = [];
@@ -221,30 +311,45 @@ const FeedGrid = ({ items, onPick }) => {
     return [l, r];
   }, [items]);
 
-  const Card = ({ m }) => (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      onPress={() => onPick?.(m)}
-      style={[styles.feedCard, { height: m.h, backgroundColor: m.tint }]}
-    >
-      {m.photoUri ? (
-        <Image source={{ uri: m.photoUri }} style={styles.feedImage} />
-      ) : (
-        <View style={styles.feedEmojiWrap}>
-          <Text style={styles.feedEmoji}>{m.emoji}</Text>
-        </View>
-      )}
-      <View style={styles.feedTagPill}>
-        <Text style={styles.feedTagText}>{m.tag}</Text>
-      </View>
-      <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.45)']}
-        style={styles.feedFade}
+  const Card = ({ m }) => {
+    const selected = selectionMode && selectedIds?.has(m.id);
+    return (
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() => onPick?.(m)}
+        style={[
+          styles.feedCard,
+          { height: m.h, backgroundColor: m.tint },
+          selected && styles.cardSelected,
+        ]}
       >
-        <Text style={styles.feedMeta}>{m.place} · {m.date}</Text>
-      </LinearGradient>
-    </TouchableOpacity>
-  );
+        {m.photoUri ? (
+          <Image
+            source={buildPhotoSource(m.photoUri, token)}
+            style={styles.feedImage}
+          />
+        ) : (
+          <View style={styles.feedEmojiWrap}>
+            <Text style={styles.feedEmoji}>{m.emoji}</Text>
+          </View>
+        )}
+        <View style={styles.feedTagPill}>
+          <Text style={styles.feedTagText}>{m.tag}</Text>
+        </View>
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.45)']}
+          style={styles.feedFade}
+        >
+          <Text style={styles.feedMeta}>{m.place} · {m.date}</Text>
+        </LinearGradient>
+        {selectionMode && (
+          <View style={[styles.selectCircle, selected && styles.selectCircleOn]}>
+            {selected && <Text style={styles.selectCheck}>✓</Text>}
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.feedRow}>
@@ -259,7 +364,7 @@ const FeedGrid = ({ items, onPick }) => {
 };
 
 // Category (mood-grouped horizontal scrollers)
-const CategoryGrid = ({ groups, onPick }) => (
+const CategoryGrid = ({ groups, onPick, selectionMode, selectedIds, token }) => (
   <View>
     {groups.map((g, i) => (
       <View key={i} style={styles.moodGroup}>
@@ -277,23 +382,40 @@ const CategoryGrid = ({ groups, onPick }) => (
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.moodRow}
         >
-          {g.items.map((m, j) => (
-            <TouchableOpacity
-              key={j}
-              activeOpacity={0.85}
-              onPress={() => onPick?.(m)}
-              style={[styles.moodCard, { backgroundColor: g.tint }]}
-            >
-              {m.photoUri ? (
-                <Image source={{ uri: m.photoUri }} style={styles.moodCardImage} />
-              ) : (
-                <Text style={styles.moodEmoji}>{m.emoji}</Text>
-              )}
-              <View style={[styles.moodCardTag, { borderColor: g.color }]}>
-                <Text style={[styles.moodCardTagText, { color: g.color }]}>{m.tag}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
+          {g.items.map((m, j) => {
+            const selected = selectionMode && selectedIds?.has(m.id);
+            return (
+              <TouchableOpacity
+                key={j}
+                activeOpacity={0.85}
+                onPress={() => onPick?.(m)}
+                style={[
+                  styles.moodCard,
+                  { backgroundColor: g.tint },
+                  selected && styles.cardSelected,
+                ]}
+              >
+                {m.photoUri ? (
+                  <Image
+                    source={buildPhotoSource(m.photoUri, token)}
+                    style={styles.moodCardImage}
+                  />
+                ) : (
+                  <Text style={styles.moodEmoji}>{m.emoji}</Text>
+                )}
+                <View style={[styles.moodCardTag, { borderColor: g.color }]}>
+                  <Text style={[styles.moodCardTagText, { color: g.color }]}>{m.tag}</Text>
+                </View>
+                {selectionMode && (
+                  <View
+                    style={[styles.selectCircle, selected && styles.selectCircleOn]}
+                  >
+                    {selected && <Text style={styles.selectCheck}>✓</Text>}
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       </View>
     ))}
@@ -606,6 +728,63 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '300',
     marginTop: -1,
+  },
+  // 선택 모드
+  cardSelected: {
+    borderWidth: 3,
+    borderColor: colors.heartRed,
+  },
+  selectCircle: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 3,
+  },
+  selectCircleOn: {
+    backgroundColor: colors.heartRed,
+    borderColor: '#FFFFFF',
+  },
+  selectCheck: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: -1,
+  },
+  deleteBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 20,
+  },
+  deleteBtn: {
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: colors.heartRed,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.heartRed,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  deleteBtnDisabled: {
+    backgroundColor: colors.pinkSoft,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  deleteBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
   },
   emptyText: {
     marginTop: 40,

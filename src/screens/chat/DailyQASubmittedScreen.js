@@ -68,8 +68,12 @@ const Sparkle = ({ style, delay = 0 }) => {
 const DailyQASubmittedScreen = ({ navigation, route }) => {
   const answer =
     route?.params?.answer ?? '웃으면서 나한테 달려올 때! 그 순간이 제일 좋아 ♥';
-  const sentAt = route?.params?.sentAt ?? '오후 9:24';
-  const day = route?.params?.day ?? 127;
+  const sentAt = route?.params?.sentAt ?? '방금';
+  const day = route?.params?.day ?? '-';
+  const result = route?.params?.result ?? {};
+  const streak = result.streak ?? 0;
+  const earnedPoints = result.earnedPoints ?? 0;
+  const bothAnswered = !!result.bothAnswered;
 
   const glowAnim = useRef(new Animated.Value(0.4)).current;
   const shimmerAnim = useRef(new Animated.Value(0)).current;
@@ -176,12 +180,14 @@ const DailyQASubmittedScreen = ({ navigation, route }) => {
           <View style={styles.streakLeft}>
             <Text style={styles.streakFire}>🔥</Text>
             <View>
-              <Text style={styles.streakTitle}>8일 연속 답변!</Text>
-              <Text style={styles.streakSub}>내일도 답변하면 +50P 추가</Text>
+              <Text style={styles.streakTitle}>
+                {streak > 0 ? `${streak}일 연속 답변!` : '답변 완료!'}
+              </Text>
+              <Text style={styles.streakSub}>내일도 답변하면 포인트 추가</Text>
             </View>
           </View>
           <View style={styles.pointBadge}>
-            <Text style={styles.pointText}>+50 P</Text>
+            <Text style={styles.pointText}>+{earnedPoints} P</Text>
           </View>
         </LinearGradient>
 
@@ -208,8 +214,14 @@ const DailyQASubmittedScreen = ({ navigation, route }) => {
               </View>
             </View>
             <View style={styles.partnerTextWrap}>
-              <Text style={styles.partnerTitle}>지호의 답변을 기다리는 중</Text>
-              <Text style={styles.partnerSub}>둘 다 답변하면 서로의 답이 공개돼요</Text>
+              <Text style={styles.partnerTitle}>
+                {bothAnswered ? '서로의 답변이 공개됐어요!' : '파트너의 답변을 기다리는 중'}
+              </Text>
+              <Text style={styles.partnerSub}>
+                {bothAnswered
+                  ? '질문 기록에서 함께 확인해보세요'
+                  : '둘 다 답변하면 서로의 답이 공개돼요'}
+              </Text>
             </View>
             <Text style={styles.hourglass}>⏳</Text>
           </View>

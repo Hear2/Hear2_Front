@@ -17,6 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 // expo-file-system v19+ 에서 readAsStringAsync/EncodingType은 legacy 서브패스로 이동됨
 import * as FileSystem from 'expo-file-system/legacy';
 import piexif from 'piexifjs';
@@ -150,19 +151,130 @@ function piexifGpsToDecimal(gpsIfd) {
   };
 }
 
+// exifr는 HEIC/HEIF/JPEG/PNG/TIFF/AVIF 등 다양한 컨테이너의 EXIF/GPS를 읽는 순수 JS 파서로,
+// piexifjs(JPEG/TIFF 전용)가 HEIC를 거부하는 문제를 메운다. 단, exifr는 모듈 로드 시
+// navigator.userAgent.includes(...)로 브라우저(Safari) 환경을 탐지하는데, RN/Hermes에는
+// navigator.userAgent가 없어 import 시점에 "Cannot read property 'includes' of undefined"로
+// 앱 전체가 크래시한다. 그래서 (1) userAgent를 빈 문자열로 폴리필하고 (2) 정적 import 대신
+// 폴리필 이후 lazy require로 로드한다.
+if (typeof navigator !== 'undefined' && navigator.userAgent == null) {
+  try {
+    navigator.userAgent = '';
+  } catch (_) {
+    // navigator가 확장 불가하면 무시 — exifr 미사용, piexifjs 폴백으로 동작.
+  }
+}
+let _exifr = null; // null=미로드, false=로드실패, object=모듈
+function loadExifr() {
+  if (_exifr === null) {
+    try {
+      _exifr = require('exifr');
+    } catch (e) {
+      _exifr = false;
+      if (__DEV__) console.log('[PhotoUpload] exifr load failed:', e?.message);
+    }
+  }
+  return _exifr || null;
+}
+
+// base64 → Uint8Array (Hermes-safe, atob 비의존). exifr가 typed array를 직접 파싱.
+const B64_CHARS =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function base64ToUint8Array(base64) {
+  const clean = base64.replace(/[^A-Za-z0-9+/]/g, '');
+  const len = clean.length;
+  const bytes = new Uint8Array((len * 3) >> 2);
+  let p = 0;
+  for (let i = 0; i < len; i += 4) {
+    const e0 = B64_CHARS.indexOf(clean[i]);
+    const e1 = B64_CHARS.indexOf(clean[i + 1]);
+    const e2 = i + 2 < len ? B64_CHARS.indexOf(clean[i + 2]) : -1;
+    const e3 = i + 3 < len ? B64_CHARS.indexOf(clean[i + 3]) : -1;
+    bytes[p++] = (e0 << 2) | (e1 >> 4);
+    if (e2 !== -1) bytes[p++] = ((e1 & 15) << 4) | (e2 >> 2);
+    if (e3 !== -1) bytes[p++] = ((e2 & 3) << 6) | e3;
+  }
+  return p === bytes.length ? bytes : bytes.subarray(0, p);
+}
+
+// EXIF 날짜("yyyy:MM:dd HH:mm:ss" 문자열) 또는 Date → ISO 문자열.
+function exifDateToIso(value) {
+  if (!value) return null;
+  if (value instanceof Date)
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  const iso = String(value).replace(/^(\d{4}):(\d{2}):(\d{2}) /, '$1-$2-$3T');
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// exifr 병합 출력에서 lat/lng/촬영시각 정규화.
+function normalizeExifrOutput(out) {
+  let lat = Number.isFinite(out?.latitude) ? out.latitude : null;
+  let lng = Number.isFinite(out?.longitude) ? out.longitude : null;
+  // 좌표가 모두 0이면 GPS 없는 사진. null로 처리.
+  if (lat === 0 && lng === 0) {
+    lat = null;
+    lng = null;
+  }
+  const capturedAt = exifDateToIso(
+    out?.DateTimeOriginal ||
+      out?.CreateDate ||
+      out?.DateTimeDigitized ||
+      out?.ModifyDate,
+  );
+  return { lat, lng, capturedAt };
+}
+
 // 파일 URI에서 EXIF GPS/촬영시각을 직접 읽음.
 // Android 13+ 시스템 PhotoPicker가 picker 응답에서 GPS를 제거하므로,
-// 파일 바이트를 직접 읽어서 EXIF 헤더를 파싱.
+// 파일 바이트를 직접 읽어서 EXIF 헤더를 파싱하는 게 핵심.
+// 1차: exifr — HEIC/HEIF/JPEG/PNG/TIFF/AVIF 등 다양한 포맷 지원.
+// 2차: piexifjs — JPEG/TIFF 전용 폴백.
 async function readExifFromFile(uri) {
+  let base64;
   try {
     // expo-file-system은 file:// / content:// URI 모두 base64로 읽을 수 있음
-    const base64 = await FileSystem.readAsStringAsync(uri, {
+    base64 = await FileSystem.readAsStringAsync(uri, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    // piexif는 jpeg 헤더를 포함한 binary string 또는 data URL을 받음
-    const dataUrl = 'data:image/jpeg;base64,' + base64;
-    const exif = piexif.load(dataUrl);
+  } catch (e) {
+    if (__DEV__)
+      console.log('[PhotoUpload] readAsStringAsync failed:', e?.message);
+    return { lat: null, lng: null, capturedAt: null };
+  }
 
+  // 1차: exifr (다양한 포맷). typed array를 직접 넘겨 컨테이너 자동 판별.
+  try {
+    const exifr = loadExifr();
+    if (exifr) {
+      const bytes = base64ToUint8Array(base64);
+      const out = await exifr.parse(bytes, {
+        tiff: true,
+        exif: true,
+        gps: true,
+        // 문자열 디코딩(TextDecoder)이 필요한 블록은 끄고 GPS/날짜만 파싱
+        xmp: false,
+        icc: false,
+        iptc: false,
+        jfif: false,
+        ihdr: false,
+        mergeOutput: true,
+      });
+      const meta = normalizeExifrOutput(out);
+      if (meta.lat != null || meta.lng != null || meta.capturedAt) {
+        if (__DEV__) console.log('[PhotoUpload] EXIF via exifr:', meta);
+        return meta;
+      }
+      if (__DEV__) console.log('[PhotoUpload] exifr: no gps/date found');
+    }
+  } catch (e) {
+    if (__DEV__) console.log('[PhotoUpload] exifr parse failed:', e?.message);
+  }
+
+  // 2차: piexifjs 폴백 (JPEG/TIFF 전용)
+  try {
+    // piexif는 jpeg 헤더를 포함한 binary string 또는 data URL을 받음
+    const exif = piexif.load('data:image/jpeg;base64,' + base64);
     const { lat, lng } = piexifGpsToDecimal(exif?.GPS);
     let finalLat = Number.isFinite(lat) ? lat : null;
     let finalLng = Number.isFinite(lng) ? lng : null;
@@ -170,28 +282,21 @@ async function readExifFromFile(uri) {
       finalLat = null;
       finalLng = null;
     }
-
-    let capturedAt = null;
-    const dto =
+    const capturedAt = exifDateToIso(
       exif?.Exif?.[piexif.ExifIFD.DateTimeOriginal] ||
-      exif?.['0th']?.[piexif.ImageIFD.DateTime];
-    if (dto) {
-      const iso = String(dto).replace(/^(\d{4}):(\d{2}):(\d{2}) /, '$1-$2-$3T');
-      const d = new Date(iso);
-      if (!Number.isNaN(d.getTime())) capturedAt = d.toISOString();
-    }
-
+        exif?.['0th']?.[piexif.ImageIFD.DateTime],
+    );
     if (__DEV__) {
-      console.log('[PhotoUpload] EXIF from file:', {
+      console.log('[PhotoUpload] EXIF via piexifjs:', {
         lat: finalLat,
         lng: finalLng,
         capturedAt,
       });
     }
-
     return { lat: finalLat, lng: finalLng, capturedAt };
   } catch (e) {
-    if (__DEV__) console.log('[PhotoUpload] readExifFromFile failed:', e?.message);
+    if (__DEV__)
+      console.log('[PhotoUpload] readExifFromFile failed:', e?.message);
     return { lat: null, lng: null, capturedAt: null };
   }
 }
@@ -320,6 +425,13 @@ export default function PhotoUpload({ navigation }) {
   const draftsRef = useRef({});
   // 저장 성공 시 true — cleanup 단계에서 미삭제로 처리
   const savedRef = useRef(false);
+  // 사용자가 위치명을 직접 수정했는지. true면 AI 자동 위치명으로 덮어쓰지 않는다.
+  const placeEditedRef = useRef(false);
+  // place의 최신값을 콜백(stale 클로저)에서 읽기 위한 mirror ref.
+  const placeRef = useRef('');
+  useEffect(() => {
+    placeRef.current = place;
+  }, [place]);
 
   // 표시할 칩 목록 = tagSlugs 그대로 (AI 도착 시 통째로 교체되므로 추가 머지 불필요)
   const allTagSlugs = tagSlugs;
@@ -342,16 +454,30 @@ export default function PhotoUpload({ navigation }) {
     if (!draft) return;
     const d = parseAiTime(draft.aiTime);
     if (d) setPickedDate(d);
-    if (draft.aiPlace) setPlace(draft.aiPlace);
+    // 사용자가 이미 위치명을 직접 고쳤다면 자동 위치명으로 덮어쓰지 않는다.
+    // 자동 위치명 우선순위: aiPlace > metadata.locationName > placeName > addressName.
+    if (!placeEditedRef.current) {
+      const autoPlace =
+        draft.aiPlace ||
+        draft.metadata?.locationName ||
+        draft.metadata?.placeName ||
+        draft.metadata?.addressName;
+      if (autoPlace) setPlace(autoPlace);
+    }
     const aiTagSlugs = Array.isArray(draft.aiTags)
       ? draft.aiTags.map(stripHash).filter(Boolean)
       : [];
-    if (aiTagSlugs.length > 0) {
-      // AI 태그가 도착하면 정적 기본 태그(#데이트 #봄 #산책)는 제거하고 AI 결과로 교체.
-      // 사용자가 다시 토글해서 추가하고 싶으면 칩에서 직접 선택.
-      setTagSlugs(aiTagSlugs);
-      setActiveTagSlugs(aiTagSlugs);
-    }
+    // AI 결과로 통째 교체. 빈 결과(인식 실패/없음)도 그대로 적용해서
+    // 정적 기본 태그가 무관한 사진에 선택된 채 남지 않도록.
+    setTagSlugs(aiTagSlugs);
+    setActiveTagSlugs(aiTagSlugs);
+  }, []);
+
+  // 사용자가 LocationPicker(검색/직접입력)로 위치명을 고르면 호출.
+  // 이후 AI 자동 위치명이 덮어쓰지 않도록 placeEditedRef를 세운다.
+  const handleSelectPlace = useCallback((name) => {
+    placeEditedRef.current = true;
+    setPlace(name);
   }, []);
 
   // 한 사진을 presigned upload → POST /memory/quick으로 draft 생성.
@@ -390,18 +516,40 @@ export default function PhotoUpload({ navigation }) {
         if (__DEV__) {
           console.log('[PhotoUpload] final meta for BE:', exifMeta);
         }
+        // BE 콘텐츠 태깅은 R2에 저장된 사진을 OpenAI 비전에 넘기는데, OpenAI는 HEIC를
+        // 지원하지 않는다(JPEG/PNG/WebP/GIF만). 그래서 업로드 전에 JPEG로 변환한다.
+        // EXIF(GPS/시각)는 위에서 원본 photo.uri로 이미 읽었으므로 변환으로 메타가 빠져도 무방.
+        let uploadUri = photo.uri;
+        let uploadMime = photo.mimeType;
+        let uploadName = photo.fileName;
+        try {
+          const jpeg = await manipulateAsync(photo.uri, [], {
+            compress: 0.9,
+            format: SaveFormat.JPEG,
+          });
+          uploadUri = jpeg.uri;
+          uploadMime = 'image/jpeg';
+          uploadName =
+            (photo.fileName || `memory-${photo.id}`).replace(/\.[^.]+$/, '') +
+            '.jpg';
+          if (__DEV__) console.log('[PhotoUpload] converted to JPEG for upload');
+        } catch (e) {
+          // 변환 실패 시 원본 업로드로 폴백 (최소한 저장/표시는 되게)
+          if (__DEV__)
+            console.log('[PhotoUpload] JPEG convert failed:', e?.message);
+        }
         const presigned = await createPresignedUrl({
           mediaType: 'photo',
-          contentType: photo.mimeType,
-          originalFileName: photo.fileName,
+          contentType: uploadMime,
+          originalFileName: uploadName,
           purpose: 'memory',
         });
         await uploadToPresignedUrl({
           uploadUrl: presigned.uploadUrl,
           method: presigned.method,
           headers: presigned.headers,
-          fileUri: photo.uri,
-          contentType: photo.mimeType,
+          fileUri: uploadUri,
+          contentType: uploadMime,
         });
         const created = await createQuickMemory({
           objectKey: presigned.objectKey,
@@ -410,6 +558,11 @@ export default function PhotoUpload({ navigation }) {
           // EXIF에 촬영시각이 없으면 현재 시각으로 — capturedAt이 빠지면 BE가 createdAt 사용
           capturedAt: exifMeta.capturedAt || new Date().toISOString(),
           userTags: [],
+          // 사용자가 이미 위치명을 직접 골랐으면(여러 장 중 뒤늦게 추가한 사진 등) 그 값을 전달.
+          // 안 골랐으면 undefined → BE가 좌표로 자동 계산. (placeRef로 최신값 참조해 stale 방지)
+          locationName: placeEditedRef.current
+            ? placeRef.current.trim() || undefined
+            : undefined,
         });
         // drafts 상태 + ref 동기화
         setDrafts((prev) => {
@@ -546,6 +699,9 @@ export default function PhotoUpload({ navigation }) {
             const patched = await updateQuickMemory(draft.id, {
               note,
               userTags: activeTagSlugs,
+              // 화면에 표시되어 사용자가 수용/수정한 위치명을 최종 저장.
+              // 비어있으면 undefined → BE의 자동 장소명을 유지(덮어쓰지 않음).
+              locationName: place.trim() || undefined,
             });
             return patched ?? draft;
           } catch (_) {
@@ -1030,7 +1186,7 @@ export default function PhotoUpload({ navigation }) {
         value={place}
         options={placeOptions}
         onClose={() => setPlaceOpen(false)}
-        onSelect={setPlace}
+        onSelect={handleSelectPlace}
       />
     </SafeAreaView>
   );

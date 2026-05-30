@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,21 +7,38 @@ import {
   StyleSheet,
   Animated,
   TextInput,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Defs, RadialGradient, Stop, Circle } from 'react-native-svg';
 import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
 import Header from '../../components/common/Header';
-import Button from '../../components/common/Button';
+import {
+  fetchTodayQuestion,
+  answerTodayQuestion,
+  fetchQuestionHistory,
+} from '../../api/qnaAPI';
+import { ApiError } from '../../api/client';
 
-const recentHistory = [
-  { day: 126, question: '가장 행복했던 데이트는?', myEmoji: '😊', partnerEmoji: '🥰', date: '5.2' },
-  { day: 125, question: '서로에게 고마운 점은?', myEmoji: '💕', partnerEmoji: '😍', date: '5.1' },
-];
+// 히스토리 status → 한 줄 상태 표기
+export const QNA_STATUS_LABEL = {
+  TODAY: '오늘',
+  BOTH_ANSWERED: '💞 공개됨',
+  MY_ANSWER_ONLY: '💗 나만 답함',
+  PARTNER_ANSWER_ONLY: '💌 상대만 답함',
+  UNANSWERED: '· 미답변',
+};
 
 const DailyQAScreen = ({ navigation }) => {
-  const [answer, setAnswer] = useState('웃으면서 나한테 달려올 때! 그 순간이 제일 좋아 ♥');
+  const [today, setToday] = useState(null);
+  const [answer, setAnswer] = useState('');
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const glowAnim = useRef(new Animated.Value(0.3)).current;
 
@@ -40,10 +57,77 @@ const DailyQAScreen = ({ navigation }) => {
     ).start();
   }, []);
 
+  const load = useCallback(async () => {
+    try {
+      const [t, h] = await Promise.all([
+        fetchTodayQuestion(),
+        fetchQuestionHistory().catch(() => []),
+      ]);
+      setToday(t);
+      // 이미 답한 경우 내 답변을 입력칸에 채워 수정 가능하게.
+      setAnswer((prev) => (prev ? prev : t?.myAnswer || ''));
+      setHistory(Array.isArray(h) ? h : []);
+    } catch (e) {
+      // 첫 로드 실패 시 사용자에게 알림 (네트워크/콜드스타트 등)
+      Alert.alert(
+        '오늘의 질문을 불러오지 못했어요',
+        e instanceof ApiError ? e.message : e?.message || '',
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // 화면 포커스마다 최신화 (제출 화면 다녀온 뒤 파트너 답변/스트릭 갱신 반영)
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
+
+  const handleSubmit = useCallback(async () => {
+    const trimmed = answer.trim();
+    if (!trimmed || submitting) return;
+    setSubmitting(true);
+    try {
+      const result = await answerTodayQuestion(trimmed);
+      navigation?.navigate('DailyQASubmittedScreen', {
+        answer: trimmed,
+        day: today?.day,
+        question: today?.question,
+        result, // { ok, bothAnswered, streak, earnedPoints }
+      });
+    } catch (e) {
+      Alert.alert(
+        '답변 저장에 실패했어요',
+        e instanceof ApiError ? e.message : e?.message || '',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }, [answer, submitting, today, navigation]);
+
   const shimmerOpacity = shimmerAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0.3, 0.7],
   });
+
+  const streak = today?.streak ?? 0;
+  const rewardPoints = today?.rewardPoints ?? 0;
+  const partnerRevealed = !!(today?.bothAnswered && today?.partnerAnswer);
+  const recent = history.slice(0, 2);
+
+  if (loading && !today) {
+    return (
+      <View style={styles.container}>
+        <LovelyBackground intensity={0.6} hearts={false} />
+        <Header title="데일리 Q&A" showBack onBack={() => navigation?.goBack()} />
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.pink} />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -58,9 +142,11 @@ const DailyQAScreen = ({ navigation }) => {
           end={{ x: 1, y: 0 }}
           style={styles.streakBanner}
         >
-          <Text style={styles.streakText}>🔥 7일 연속 답변 중!</Text>
+          <Text style={styles.streakText}>
+            {streak > 0 ? `🔥 ${streak}일 연속 답변 중!` : '오늘의 질문에 답해보세요'}
+          </Text>
           <View style={styles.pointBadge}>
-            <Text style={styles.pointText}>+50 P</Text>
+            <Text style={styles.pointText}>+{rewardPoints} P</Text>
           </View>
         </LinearGradient>
 
@@ -80,12 +166,17 @@ const DailyQAScreen = ({ navigation }) => {
           </Animated.View>
           <View style={styles.questionHeader}>
             <View style={styles.progressBarBg}>
-              <View style={[styles.progressBarFill, { width: '85%' }]} />
+              <View
+                style={[
+                  styles.progressBarFill,
+                  { width: today?.bothAnswered ? '100%' : today?.myAnswer ? '60%' : '20%' },
+                ]}
+              />
             </View>
-            <Text style={styles.dayLabel}>Day 127</Text>
+            <Text style={styles.dayLabel}>Day {today?.day ?? '-'}</Text>
           </View>
           <Text style={styles.questionText}>
-            상대방이 나를 가장{'\n'}기쁘게 하는 순간은{'\n'}언제인가요?
+            {today?.question || '오늘의 질문을 준비 중이에요'}
           </Text>
         </View>
 
@@ -101,42 +192,50 @@ const DailyQAScreen = ({ navigation }) => {
             onChangeText={setAnswer}
             multiline
             maxLength={500}
+            editable={!submitting}
             placeholder="답변을 입력해주세요..."
             placeholderTextColor={colors.inkMute}
           />
         </View>
 
-        {/* Partner Answer (Locked) */}
-        <View style={styles.lockedCard}>
-          <View style={styles.answerHeader}>
-            <Text style={styles.answerLabel}>🔒 파트너 답변</Text>
+        {/* Partner Answer */}
+        {partnerRevealed ? (
+          <View style={styles.answerCard}>
+            <View style={styles.answerHeader}>
+              <Text style={styles.answerLabel}>💌 파트너 답변</Text>
+            </View>
+            <Text style={styles.answerInput}>{today.partnerAnswer}</Text>
           </View>
-          <View style={styles.shimmerLines}>
-            {[1, 0.8, 0.6].map((w, i) => (
-              <Animated.View
-                key={i}
-                style={[
-                  styles.shimmerBar,
-                  { width: `${w * 100}%`, opacity: shimmerOpacity },
-                ]}
-              />
-            ))}
+        ) : (
+          <View style={styles.lockedCard}>
+            <View style={styles.answerHeader}>
+              <Text style={styles.answerLabel}>🔒 파트너 답변</Text>
+            </View>
+            <View style={styles.shimmerLines}>
+              {[1, 0.8, 0.6].map((w, i) => (
+                <Animated.View
+                  key={i}
+                  style={[
+                    styles.shimmerBar,
+                    { width: `${w * 100}%`, opacity: shimmerOpacity },
+                  ]}
+                />
+              ))}
+            </View>
+            <Text style={styles.lockedHint}>
+              {today?.partnerAnswered
+                ? '파트너가 답했어요! 내가 답하면 서로의 답이 공개돼요'
+                : '둘 다 답변하면 서로의 답이 공개돼요'}
+            </Text>
           </View>
-          <Text style={styles.lockedHint}>
-            둘 다 답변하면 서로의 답이 공개돼요
-          </Text>
-        </View>
+        )}
 
         {/* CTA Button */}
         <TouchableOpacity
-          style={styles.ctaButton}
+          style={[styles.ctaButton, (!answer.trim() || submitting) && styles.ctaDisabled]}
           activeOpacity={0.85}
-          onPress={() =>
-            navigation?.navigate('DailyQASubmittedScreen', {
-              answer,
-              day: 127,
-            })
-          }
+          onPress={handleSubmit}
+          disabled={!answer.trim() || submitting}
         >
           <LinearGradient
             colors={[colors.pink, colors.rose]}
@@ -144,7 +243,13 @@ const DailyQAScreen = ({ navigation }) => {
             end={{ x: 1, y: 0 }}
             style={styles.ctaGradient}
           >
-            <Text style={styles.ctaText}>답변 저장하고 살짝 보내기 💌</Text>
+            {submitting ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.ctaText}>
+                {today?.myAnswer ? '답변 수정해서 보내기 💌' : '답변 저장하고 살짝 보내기 💌'}
+              </Text>
+            )}
           </LinearGradient>
         </TouchableOpacity>
 
@@ -159,18 +264,33 @@ const DailyQAScreen = ({ navigation }) => {
             <Text style={styles.seeAll}>더보기 ›</Text>
           </TouchableOpacity>
         </View>
-        {recentHistory.map((item, idx) => (
-          <TouchableOpacity key={idx} style={styles.historyItem} activeOpacity={0.7}>
-            <View style={styles.historyLeft}>
-              <Text style={styles.historyDay}>Day {item.day}</Text>
-              <Text style={styles.historyQuestion} numberOfLines={1}>{item.question}</Text>
-            </View>
-            <View style={styles.historyRight}>
-              <Text style={styles.historyEmoji}>{item.myEmoji} {item.partnerEmoji}</Text>
-              <Text style={styles.historyDate}>{item.date}</Text>
-            </View>
-          </TouchableOpacity>
-        ))}
+        {recent.length === 0 ? (
+          <Text style={styles.lockedHint}>아직 지난 Q&A가 없어요</Text>
+        ) : (
+          recent.map((item) => (
+            <TouchableOpacity
+              key={item.questionId ?? item.day}
+              style={styles.historyItem}
+              activeOpacity={0.7}
+              onPress={() =>
+                item.questionId &&
+                navigation?.navigate('QuestionDetailScreen', {
+                  questionId: item.questionId,
+                })
+              }
+            >
+              <View style={styles.historyLeft}>
+                <Text style={styles.historyDay}>Day {item.day}</Text>
+                <Text style={styles.historyQuestion} numberOfLines={1}>{item.question}</Text>
+              </View>
+              <View style={styles.historyRight}>
+                <Text style={styles.historyDate}>
+                  {QNA_STATUS_LABEL[item.status] ?? ''}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -306,10 +426,18 @@ const styles = StyleSheet.create({
     color: colors.inkMute,
     textAlign: 'center',
   },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   ctaButton: {
     marginBottom: 28,
     borderRadius: 20,
     overflow: 'hidden',
+  },
+  ctaDisabled: {
+    opacity: 0.5,
   },
   ctaGradient: {
     paddingVertical: 16,

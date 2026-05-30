@@ -19,6 +19,8 @@ import {
   deleteMemory as apiDeleteMemory,
 } from '../../api/memoryAPI';
 import { useMemories } from '../../contexts/MemoryContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { buildPhotoSource } from '../../utils/imageSource';
 
 const TAG_COLOR_CYCLE = [
   colors.pink,
@@ -72,6 +74,7 @@ export default function PhotoDetailScreen({ navigation, route }) {
     passedMemory?.id;
 
   const { refresh: refreshAlbum } = useMemories();
+  const { accessToken } = useAuth();
 
   // BE detail (있으면 사용, 없으면 passedMemory 그대로 표시)
   const [detail, setDetail] = useState(null);
@@ -107,7 +110,12 @@ export default function PhotoDetailScreen({ navigation, route }) {
         photoUrl: detail.photoUrl,
         takenAt: detail.metadata?.takenAt || detail.createdAt,
         memoryDate: detail.memoryDate,
-        place: detail.metadata?.locationName || '',
+        // 위치 표시 우선순위: locationName > placeName > addressName.
+        place:
+          detail.metadata?.locationName ||
+          detail.metadata?.placeName ||
+          detail.metadata?.addressName ||
+          '',
         tags,
         aiTags: aiTagSlugs,
       };
@@ -241,7 +249,10 @@ export default function PhotoDetailScreen({ navigation, route }) {
         {/* Hero photo */}
         {view.photoUrl ? (
           <View style={styles.hero}>
-            <Image source={{ uri: view.photoUrl }} style={styles.heroImage} />
+            <Image
+              source={buildPhotoSource(view.photoUrl, accessToken)}
+              style={styles.heroImage}
+            />
             {loading && (
               <View style={styles.heroLoader}>
                 <ActivityIndicator color="#fff" />

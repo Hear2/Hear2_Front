@@ -6,7 +6,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { fetchAlbum } from '../api/memoryAPI';
+import { fetchAlbum, deleteMemory } from '../api/memoryAPI';
 
 const MemoryContext = createContext(null);
 
@@ -34,8 +34,15 @@ const INITIAL_MEMORIES = [
 // BE MemoryResponse → 로컬 메모리 카드 모양 어댑터
 function memoryResponseToCard(res, idx) {
   const tag = (res.aiTags?.[0] || res.userTags?.[0] || '#기록');
-  const place = res.metadata?.locationName || '미지정';
+  // 위치 표시 우선순위: 사용자 수정/추천 locationName > placeName > addressName > 없음.
+  const place =
+    res.metadata?.locationName ||
+    res.metadata?.placeName ||
+    res.metadata?.addressName ||
+    '미지정';
   return {
+    // 선택/삭제용 안정적 식별자. BE 항목은 backendId 기반으로 고유.
+    id: `be-${res.id}`,
     backendId: res.id,
     emoji: '📸',
     photoUri: res.photoUrl || null,
@@ -50,7 +57,10 @@ function memoryResponseToCard(res, idx) {
 }
 
 export function MemoryProvider({ children }) {
-  const [memories, setMemories] = useState(INITIAL_MEMORIES);
+  // 시드에도 선택/삭제용 id를 부여.
+  const [memories, setMemories] = useState(() =>
+    INITIAL_MEMORIES.map((m, i) => ({ ...m, id: m.id ?? `seed-${i}` })),
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   // BE에서 한 번이라도 정상 데이터가 도착했으면 시드 대체, 아니면 시드 유지
@@ -59,8 +69,27 @@ export function MemoryProvider({ children }) {
   const addMemory = useCallback((m) => {
     setMemories((prev) => {
       const h = m.h ?? HEIGHT_CYCLE[prev.length % HEIGHT_CYCLE.length];
-      return [{ ...m, h }, ...prev];
+      const id = m.id ?? `local-${Date.now()}-${prev.length}`;
+      return [{ ...m, id, h }, ...prev];
     });
+  }, []);
+
+  // 다중 선택 삭제. 로컬 상태에서 즉시 제거하고(낙관적), backendId가 있는 항목은
+  // BE에도 삭제 요청(best-effort). items는 삭제할 메모리 카드 객체 배열.
+  const removeMemories = useCallback(async (items) => {
+    if (!items || items.length === 0) return;
+    const ids = new Set(items.map((m) => m.id));
+    setMemories((prev) => prev.filter((m) => !ids.has(m.id)));
+
+    const backendIds = [];
+    items.forEach((m) => {
+      if (m.backendId != null) backendIds.push(m.backendId);
+      // handleSave가 여러 장을 backendIds 배열로 묶어둔 로컬 카드도 처리.
+      if (Array.isArray(m.backendIds)) backendIds.push(...m.backendIds);
+    });
+    await Promise.allSettled(
+      backendIds.map((bid) => deleteMemory(bid).catch(() => {})),
+    );
   }, []);
 
   const refresh = useCallback(async () => {
@@ -88,6 +117,7 @@ export function MemoryProvider({ children }) {
         loading,
         error,
         addMemory,
+        removeMemories,
         refresh,
         hydrated: hydratedRef.current,
       }}

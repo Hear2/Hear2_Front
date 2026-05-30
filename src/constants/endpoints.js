@@ -104,4 +104,12 @@ export default {
     histories: `${BASE_URL}/api/v1/judge/histories`,
     patterns: `${BASE_URL}/api/v1/judge/patterns`,
   },
+
+  // 데일리 Q&A (1일1답, 실 BE). ApiResponse 래핑 없이 생 DTO 반환.
+  qna: {
+    today: `${BASE_URL}/api/v1/qna/today`,
+    answerToday: `${BASE_URL}/api/v1/qna/today/answer`,
+    history: `${BASE_URL}/api/v1/qna/history`,
+    detail: (questionId) => `${BASE_URL}/api/v1/qna/${questionId}`,
+  },
 };

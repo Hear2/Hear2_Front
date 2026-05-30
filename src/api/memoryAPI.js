@@ -88,6 +88,8 @@ export function analyzeImageTags({ imageUrl } = {}) {
 
 // capturedAt은 OffsetDateTime (UTC ISO8601 권장: "2026-05-12T14:00:00Z")
 // userTags는 ["우리둘이", "특별한날"] 처럼 # 제외 문자열 배열
+// locationName: 사용자가 직접 지정한 위치명. 보내면 BE가 카카오 자동 장소명보다 우선 저장.
+//   생략(undefined)하면 BE가 lat/lng 기준으로 자동 장소명을 계산한다. (JSON.stringify가 undefined 키를 누락)
 export function createQuickMemory({
   objectKey,
   imageUrl, // 호환용
@@ -95,6 +97,7 @@ export function createQuickMemory({
   lng,
   capturedAt,
   userTags,
+  locationName,
 } = {}) {
   return postUnwrapped(endpoints.memory.quickCreate, {
     objectKey,
@@ -103,13 +106,23 @@ export function createQuickMemory({
     lng,
     capturedAt,
     userTags,
+    locationName,
   });
 }
 
-export function updateQuickMemory(id, { note, userTags } = {}) {
-  return patch(endpoints.memory.quickUpdate(id), { note, userTags }).then(
-    (env) => env?.data ?? env,
-  );
+// locationName만 보내면 위치명만 수정, 지도에서 좌표까지 다시 골랐으면 lat/lng도 함께 전달.
+// undefined 필드는 JSON 직렬화 시 빠지므로, 바꿀 값만 넘기면 된다.
+export function updateQuickMemory(
+  id,
+  { note, userTags, locationName, lat, lng } = {},
+) {
+  return patch(endpoints.memory.quickUpdate(id), {
+    note,
+    userTags,
+    locationName,
+    lat,
+    lng,
+  }).then((env) => env?.data ?? env);
 }
 
 // ───── 앨범 / 달력 / 상세 ─────
@@ -151,6 +164,7 @@ export async function uploadAndCreateQuickMemory({
   lng,
   capturedAt,
   userTags,
+  locationName,
 } = {}) {
   const presigned = await createPresignedUrl({
     mediaType: 'photo',
@@ -173,5 +187,6 @@ export async function uploadAndCreateQuickMemory({
     lng,
     capturedAt,
     userTags,
+    locationName,
   });
 }

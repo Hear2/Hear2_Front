@@ -98,11 +98,21 @@ const LoginScreen = ({ navigation }) => {
     androidClientId: googleAndroidClientResolved,
     webClientId: GOOGLE_WEB_CLIENT_ID || googleAndroidClientResolved,
     scopes: ['openid', 'profile', 'email'],
-    // BE는 id_token만 검증하므로 idToken 응답을 우선
-    responseType: 'id_token',
+    // responseType은 명시하지 않음 — Android client는 implicit(id_token) flow를 거부하므로
+    // expo-auth-session 기본값(code + PKCE)을 사용. webClientId 동봉으로 id_token의 aud는 Web client ID.
   });
   // 실제 Android client ID가 없으면 로그인 시도 시 안내
   const googleAndroidMissing = !GOOGLE_ANDROID_CLIENT_ID;
+
+  // DEBUG: 실제로 expo-auth-session이 만든 OAuth URL과 redirect URI를 로그로 찍음
+  useEffect(() => {
+    if (!googleRequest) return;
+    console.log('[Login][DEBUG] googleRequest.url =', googleRequest.url);
+    console.log('[Login][DEBUG] redirectUri =', googleRequest.redirectUri);
+    console.log('[Login][DEBUG] clientId =', googleRequest.clientId);
+    console.log('[Login][DEBUG] responseType =', googleRequest.responseType);
+    console.log('[Login][DEBUG] scopes =', googleRequest.scopes);
+  }, [googleRequest]);
 
   // Kakao OAuth: dev build에서도 scheme deep-link 필요 — Kakao 콘솔에 hear2://kakao-oauth 등록 필요
   const kakaoRedirectUri = KAKAO_REDIRECT_URI_FALLBACK;
