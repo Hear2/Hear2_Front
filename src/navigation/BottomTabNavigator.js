@@ -37,8 +37,9 @@ const TAB_CONTENT_HEIGHT = 64;
 const MIN_BOTTOM_PADDING = Platform.OS === 'ios' ? 8 : 10;
 
 export default function BottomTabNavigator() {
-  const insets = useSafeAreaInsets();
-  const bottomPad = Math.max(insets.bottom, MIN_BOTTOM_PADDING);
+  // 하단 내비바 영역은 App.js 루트(BottomInsetGate)에서 일괄 확보하므로
+  // 탭바는 자체 최소 패딩만 둔다 (insets.bottom 중복 적용 방지).
+  const bottomPad = MIN_BOTTOM_PADDING;
 
   return (
     <Tab.Navigator

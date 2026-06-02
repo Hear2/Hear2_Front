@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
+  Image,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -12,6 +13,7 @@ import colors from '../../constants/colors';
 import Heart from '../../components/common/Heart';
 import Chip from '../../components/common/Chip';
 import DdayCard from './DdayCard';
+import { useMemories } from '../../contexts/MemoryContext';
 
 const quickActions = [
   { emoji: '📷', label: '3초 기록',   bg: colors.pinkTint,     route: 'RecordScreen' },
@@ -22,15 +24,18 @@ const quickActions = [
   { emoji: '🤔', label: '만약에 AI',  bg: colors.pinkTint,     route: 'WhatIfScreen' },
 ];
 
-const recentMemories = [
-  { emoji: '🌸', tag: '#데이트', place: '서울숲',   date: '3.15', tint: '#FFE4EE',         h: 200 },
-  { emoji: '🍜', tag: '#음식',   place: '신촌',     date: '3.14', tint: colors.yellowTint, h: 140 },
-  { emoji: '🎡', tag: '#데이트', place: '롯데월드', date: '3.1',  tint: '#FFE4EE',         h: 220 },
-  { emoji: '🌅', tag: '#여행',   place: '해운대',   date: '2.20', tint: '#FFF0E5',         h: 150 },
-];
-
 const HomeScreen = ({ navigation }) => {
   const emojiScale = useRef(new Animated.Value(1)).current;
+
+  // 앨범과 동일한 공유 메모리 소스를 사용해 최근 추억을 표시한다.
+  const { memories, refresh } = useMemories();
+
+  useEffect(() => {
+    refresh().catch(() => {});
+  }, [refresh]);
+
+  // 가장 최근 4개만 홈 피드에 노출.
+  const recentMemories = useMemo(() => memories.slice(0, 4), [memories]);
 
   const [memLeft, memRight] = useMemo(() => {
     const l = [];
@@ -38,16 +43,17 @@ const HomeScreen = ({ navigation }) => {
     let lH = 0;
     let rH = 0;
     recentMemories.forEach((m) => {
+      const h = m.h ?? 160;
       if (lH <= rH) {
         l.push(m);
-        lH += m.h;
+        lH += h;
       } else {
         r.push(m);
-        rH += m.h;
+        rH += h;
       }
     });
     return [l, r];
-  }, []);
+  }, [recentMemories]);
 
   useEffect(() => {
     Animated.loop(
@@ -198,14 +204,22 @@ const HomeScreen = ({ navigation }) => {
                 <TouchableOpacity
                   key={`${ci}-${i}`}
                   activeOpacity={0.85}
-                  style={[styles.feedCard, { height: m.h, backgroundColor: m.tint }]}
+                  style={[styles.feedCard, { height: m.h ?? 160, backgroundColor: m.tint }]}
                   onPress={() => navigation.navigate('앨범')}
                 >
+                  {m.photoUri ? (
+                    <Image
+                      source={{ uri: m.photoUri }}
+                      style={styles.feedImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.feedEmojiWrap}>
+                      <Text style={styles.feedEmoji}>{m.emoji}</Text>
+                    </View>
+                  )}
                   <View style={styles.feedTagPill}>
                     <Text style={styles.feedTagText}>{m.tag}</Text>
-                  </View>
-                  <View style={styles.feedEmojiWrap}>
-                    <Text style={styles.feedEmoji}>{m.emoji}</Text>
                   </View>
                   <LinearGradient
                     colors={['transparent', 'rgba(0,0,0,0.45)']}
@@ -478,6 +492,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: colors.pink,
+  },
+  feedImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   feedEmojiWrap: {
     flex: 1,

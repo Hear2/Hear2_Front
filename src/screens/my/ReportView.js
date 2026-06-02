@@ -39,15 +39,15 @@ const MOCK_REPORT = {
     { time: '16시', emoji: '😊', score: 70 },
     { time: '18시', emoji: '🥰', score: 85 },
   ],
-  totalConversationCount: 32,
-  positiveRatio: 68,
-  uploadedPhotoCount: 4,
-  oneAnswerResponseCount: null,
-  oneAnswerTotalCount: null,
-  mostUsedWords: [],
+  totalConversationCount: 128,
+  positiveRatio: 74,
+  uploadedPhotoCount: 9,
+  oneAnswerResponseCount: 6,
+  oneAnswerTotalCount: 7,
+  mostUsedWords: ['사랑해', '고마워', '보고싶어', '주말', '데이트', '맛있다', '미안해', '수고했어'],
   memoryHighlight: null,
   monthlyComparison: null,
-  relationshipHealth: null,
+  relationshipHealth: '이번 달 관계 건강도는 82점이에요. 갈등 후 평균 화해까지 걸린 시간이 지난달보다 40% 빨라졌어요 💞',
   monthlyRecommendations: null,
 };
 
@@ -71,7 +71,7 @@ function formatPeriod(start, end) {
 }
 
 export default function ReportView({ navigation, route }) {
-  const { user } = useAuth();
+  const { user, refreshCoupleStatus } = useAuth();
   const coupleId = route?.params?.coupleId ?? user?.coupleId ?? null;
   const initialType = route?.params?.reportType ?? 'WEEKLY';
 
@@ -101,11 +101,17 @@ export default function ReportView({ navigation, route }) {
           setReport({ ...MOCK_REPORT, reportType });
           return;
         }
-        if (!coupleId) {
+        // user.coupleId가 비어 있으면(부팅 시 status 동기화 실패 등) /couples/status로 재조회.
+        let cid = coupleId;
+        if (!cid) {
+          const status = await refreshCoupleStatus();
+          cid = status?.coupleId ?? null;
+        }
+        if (!cid) {
           throw new Error('coupleId를 찾을 수 없어요. 로그인 후 다시 시도해주세요.');
         }
         const data = await getCoupleReport({
-          coupleId,
+          coupleId: cid,
           reportType,
           signal,
         });
@@ -117,7 +123,7 @@ export default function ReportView({ navigation, route }) {
         setLoading(false);
       }
     },
-    [coupleId, reportType],
+    [coupleId, reportType, refreshCoupleStatus],
   );
 
   useEffect(() => {

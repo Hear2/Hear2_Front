@@ -39,7 +39,7 @@ export default function YearAgoScreen({ navigation }) {
 
   if (state.loading) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
         <View style={styles.center}>
           <ActivityIndicator color={colors.pink} />
         </View>
@@ -48,7 +48,7 @@ export default function YearAgoScreen({ navigation }) {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <View style={styles.center}>
         <Text style={styles.emoji}>📅</Text>
         <Text style={styles.title}>1년 전 오늘은 추억이 없어요</Text>

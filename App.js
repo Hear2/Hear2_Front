@@ -1,11 +1,12 @@
 import React, { useEffect, useRef } from 'react';
-import { LogBox } from 'react-native';
+import { LogBox, View } from 'react-native';
 import {
   NavigationContainer,
   createNavigationContainerRef,
 } from '@react-navigation/native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import colors from './src/constants/colors';
 import * as Notifications from 'expo-notifications';
 
 // Expo Go SDK 53+에서 원격 push는 제거됨 — 로컬 알림은 정상이라 무시해도 안전한 워닝
@@ -39,6 +40,25 @@ async function handleYearAgoTap() {
   } catch (_) {
     // 인증 만료/네트워크 실패 등 — 무시 (사용자는 알림만 본 상태로 남음)
   }
+}
+
+// 안드로이드 edge-to-edge(Expo SDK 54 기본)에서 앱이 시스템 내비게이션 바 아래까지
+// 그려져 모든 화면의 하단이 내비바에 가리는 문제가 있었다. 루트에서 하단 inset만큼
+// 패딩을 줘서 전 화면 공통으로 내비바 영역을 확보한다.
+// (탭바는 BottomTabNavigator에서 insets.bottom을 중복 적용하지 않도록 함)
+function BottomInsetGate({ children }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      style={{
+        flex: 1,
+        paddingBottom: insets.bottom,
+        backgroundColor: colors.bgApp,
+      }}
+    >
+      {children}
+    </View>
+  );
 }
 
 export default function App() {
@@ -81,9 +101,11 @@ export default function App() {
         <MemoryProvider>
           <EventProvider>
             <CoupleProvider>
-              <NavigationContainer ref={navigationRef}>
-                <RootNavigator />
-              </NavigationContainer>
+              <BottomInsetGate>
+                <NavigationContainer ref={navigationRef}>
+                  <RootNavigator />
+                </NavigationContainer>
+              </BottomInsetGate>
             </CoupleProvider>
           </EventProvider>
         </MemoryProvider>

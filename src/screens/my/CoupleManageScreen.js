@@ -42,23 +42,13 @@ const ddayLabel = (iso) => {
   return 'D-DAY';
 };
 
-const sortByUpcoming = (list) => {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  return [...list].sort((a, b) => {
-    const da = new Date(a.date) - now;
-    const db = new Date(b.date) - now;
-    // upcoming (>= 0) first, then most-recent past
-    if (da >= 0 && db < 0) return -1;
-    if (da < 0 && db >= 0) return 1;
-    if (da >= 0) return da - db;
-    return db - da;
-  });
-};
+// 날짜 오름차순(시간 순) 정렬: 과거 → 미래.
+const sortByDate = (list) =>
+  [...list].sort((a, b) => new Date(a.date) - new Date(b.date));
 
 const CoupleManageScreen = ({ navigation }) => {
   const { anniversaries } = useCouple();
-  const sorted = useMemo(() => sortByUpcoming(anniversaries), [anniversaries]);
+  const sorted = useMemo(() => sortByDate(anniversaries), [anniversaries]);
   return (
   <SettingsShell navigation={navigation} title="커플 관리">
     {/* hero */}

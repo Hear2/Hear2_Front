@@ -71,7 +71,7 @@ function isSparseDna(data) {
 }
 
 export default function CoupleDNA({ navigation, route }) {
-  const { user } = useAuth();
+  const { user, refreshCoupleStatus } = useAuth();
   const coupleId = route?.params?.coupleId ?? user?.coupleId ?? null;
   const anchorDate = route?.params?.anchorDate;
 
@@ -91,10 +91,16 @@ export default function CoupleDNA({ navigation, route }) {
           setDna(MOCK_DNA);
           return;
         }
-        if (!coupleId) {
+        // user.coupleId가 비어 있으면(부팅 시 status 동기화 실패 등) /couples/status로 재조회.
+        let cid = coupleId;
+        if (!cid) {
+          const status = await refreshCoupleStatus();
+          cid = status?.coupleId ?? null;
+        }
+        if (!cid) {
           throw new Error('coupleId를 찾을 수 없어요.');
         }
-        const data = await getCoupleDna({ coupleId, anchorDate, signal });
+        const data = await getCoupleDna({ coupleId: cid, anchorDate, signal });
         // BE 응답이 와도 분석 데이터가 너무 빈약하면 mock으로 대체.
         // 7일치 미만이면 metric/조사/문구가 어색하게 노출되므로 보여줄 만큼 쌓이기 전까지는 mock.
         setDna(isSparseDna(data) ? MOCK_DNA : data);
@@ -105,7 +111,7 @@ export default function CoupleDNA({ navigation, route }) {
         setLoading(false);
       }
     },
-    [coupleId, anchorDate],
+    [coupleId, anchorDate, refreshCoupleStatus],
   );
 
   useEffect(() => {

@@ -81,7 +81,9 @@ const ChatScreen = ({ navigation }) => {
   const { user } = useAuth();
   // /auth/me 응답이 user.id로 올 수도 있어 둘 다 허용. 비교는 숫자로 강제.
   const rawMyId = user?.userId ?? user?.id ?? null;
-  const myId = rawMyId != null ? Number(rawMyId) : null;
+  // mock 모드에선 로그인 유저에 userId가 없어 myId가 null → 말풍선이 전부 상대쪽으로 쏠림.
+  // 데모용으로 myId를 1로 고정해 내가 보낸 메시지(senderId=1)가 오른쪽에 표시되게 함.
+  const myId = rawMyId != null ? Number(rawMyId) : endpoints.MOCK ? 1 : null;
 
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
@@ -106,6 +108,28 @@ const ChatScreen = ({ navigation }) => {
   const loadMessages = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     try {
+      if (endpoints.MOCK) {
+        const me = myId ?? 1;
+        const them = me === 2 ? 1 : 2;
+        const t = (min) => new Date(Date.now() - min * 60000).toISOString();
+        const mock = [
+          { id: 1, senderId: them, receiverId: me, content: '오늘 출근길에 우리 처음 갔던 카페 지나갔어 ☕', messageType: 'TEXT', createdAt: t(220), emotionType: 'HAPPY', emotionScore: 0.82, emotionEmoji: '😊', negativeScore: 0.05, riskLevel: 'NONE' },
+          { id: 2, senderId: me, receiverId: them, content: '헐 진짜? 거기 완전 추억의 장소인데 🥺', messageType: 'TEXT', createdAt: t(218), emotionType: 'HAPPY', emotionScore: 0.88, emotionEmoji: '🥰', negativeScore: 0.03, riskLevel: 'NONE' },
+          { id: 3, senderId: them, receiverId: me, content: '주말에 다시 갈까? 그때 먹었던 티라미수 또 먹고 싶다', messageType: 'TEXT', createdAt: t(215), emotionType: 'HAPPY', emotionScore: 0.79, emotionEmoji: '😋', negativeScore: 0.04, riskLevel: 'NONE' },
+          { id: 4, senderId: me, receiverId: them, content: '좋아!! 토요일 오후 어때? 🗓️', messageType: 'TEXT', createdAt: t(212), emotionType: 'HAPPY', emotionScore: 0.80, emotionEmoji: '😄', negativeScore: 0.05, riskLevel: 'NONE' },
+          { id: 5, senderId: them, receiverId: me, content: '근데 요즘 나 일 너무 바빠서 좀 지친다…', messageType: 'TEXT', createdAt: t(120), emotionType: 'SAD', emotionScore: 0.64, emotionEmoji: '😞', negativeScore: 0.58, riskLevel: 'CAUTION' },
+          { id: 6, senderId: me, receiverId: them, content: '많이 힘들지… 내가 옆에 있잖아 💛', messageType: 'TEXT', createdAt: t(118), emotionType: 'HAPPY', emotionScore: 0.71, emotionEmoji: '🤍', negativeScore: 0.10, riskLevel: 'NONE' },
+          { id: 7, senderId: them, receiverId: me, content: '아 진짜 왜 맨날 나만 이래야 돼? 너는 신경도 안 쓰잖아', messageType: 'TEXT', createdAt: t(40), emotionType: 'ANGRY', emotionScore: 0.86, emotionEmoji: '😤', negativeScore: 0.84, riskLevel: 'WARNING', riskDetected: true, judgeAvailable: true },
+          { id: 8, senderId: me, receiverId: them, content: '그렇게 말하니까 나도 좀 속상해…', messageType: 'TEXT', createdAt: t(38), emotionType: 'SAD', emotionScore: 0.60, emotionEmoji: '🥲', negativeScore: 0.55, riskLevel: 'CAUTION' },
+          { id: 9, senderId: them, receiverId: me, content: '미안… 내가 너무 예민했어. 오늘 저녁에 통화하자', messageType: 'TEXT', createdAt: t(8), emotionType: 'NEUTRAL', emotionScore: 0.52, emotionEmoji: '😌', negativeScore: 0.20, riskLevel: 'NONE' },
+          { id: 10, senderId: me, receiverId: them, content: '응 좋아. 사랑해 🩷', messageType: 'TEXT', createdAt: t(5), emotionType: 'HAPPY', emotionScore: 0.92, emotionEmoji: '🥰', negativeScore: 0.02, riskLevel: 'NONE' },
+        ];
+        setMessages(mock);
+        lastIdRef.current = mock[mock.length - 1].id;
+        if (!silent) scrollToEnd();
+        setError(null);
+        return;
+      }
       const list = await fetchMessages();
       const arr = Array.isArray(list) ? list : [];
       setMessages(arr);

@@ -10,6 +10,7 @@ import Svg, { Path } from 'react-native-svg';
 import Heart from '../../components/common/Heart';
 import { useMemories } from '../../contexts/MemoryContext';
 import { useEvents } from '../../contexts/EventContext';
+import { useCouple } from '../../contexts/CoupleContext';
 
 const OWNER_TINT = {
   me:      'rgba(255,138,76,0.55)',
@@ -110,7 +111,29 @@ const parseMonthDay = (str) => {
 export default function SharedCalendar({ navigation, route }) {
   const { memories } = useMemories();
   const { events } = useEvents();
+  const { anniversaries } = useCouple();
   const today = useMemo(() => new Date(), []);
+
+  // 커플 관리의 기념일(자동 계산 포함)을 캘린더 이벤트 모양으로 변환해 합친다.
+  // EventContext에 복제하지 않고 파생 병합하므로 항상 기념일과 동기화된다.
+  const anniversaryEvents = useMemo(
+    () =>
+      (anniversaries || [])
+        .filter((a) => a.date)
+        .map((a) => ({
+          id: `ann-${a.id}`,
+          startDate: a.date,
+          endDate: a.date,
+          title: a.name,
+          owner: 'couple',
+          isAnniversary: true,
+        })),
+    [anniversaries],
+  );
+  const calendarEvents = useMemo(
+    () => [...events, ...anniversaryEvents],
+    [events, anniversaryEvents],
+  );
   const [view, setView] = useState({
     y: today.getFullYear(),
     m: today.getMonth(),
@@ -158,7 +181,7 @@ export default function SharedCalendar({ navigation, route }) {
     monthStart.setHours(0, 0, 0, 0);
     monthEnd.setHours(0, 0, 0, 0);
 
-    events.forEach((ev) => {
+    calendarEvents.forEach((ev) => {
       if (!ev.startDate) return;
       const startRaw = new Date(ev.startDate);
       const endRaw = ev.endDate ? new Date(ev.endDate) : startRaw;
@@ -195,7 +218,7 @@ export default function SharedCalendar({ navigation, route }) {
       }
     });
     return result;
-  }, [events, view]);
+  }, [calendarEvents, view]);
 
   // 하이라이트 바는 공유 일정 전용. 추억은 하트 아이콘만 표시.
   const highlightsByDay = useMemo(() => {
@@ -457,7 +480,9 @@ export default function SharedCalendar({ navigation, route }) {
                     style={styles.eventCard}
                     activeOpacity={0.7}
                     onPress={() =>
-                      navigation?.navigate?.('EventDetail', { eventId: ev.id })
+                      ev.isAnniversary
+                        ? navigation?.navigate?.('CoupleManageScreen')
+                        : navigation?.navigate?.('EventDetail', { eventId: ev.id })
                     }
                   >
                     <View
