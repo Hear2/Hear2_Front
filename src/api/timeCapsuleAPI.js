@@ -1,5 +1,7 @@
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import endpoints from '../constants/endpoints';
 import { getUnwrapped, postUnwrapped } from './client';
+import { createPresignedUrl, uploadToPresignedUrl } from './memoryAPI';
 
 // 타임캡슐(커플 타임캡슐) API.
 //
@@ -82,6 +84,44 @@ function buildMockList() {
 }
 
 const toIso = (v) => (v instanceof Date ? v.toISOString() : String(v ?? ''));
+
+// 갤러리에서 고른 사진들을 presigned URL로 업로드하고 objectKey 배열을 반환.
+// photos: [{ uri, mimeType?, fileName? }]  (expo-image-picker asset)
+// HEIC 등은 JPEG로 변환 후 업로드(메모리 파이프라인과 동일).
+export async function uploadCapsulePhotos(photos) {
+  if (!photos || photos.length === 0) return [];
+  if (endpoints.MOCK) return [];
+  const keys = [];
+  for (let i = 0; i < photos.length; i += 1) {
+    const p = photos[i];
+    let uri = p.uri;
+    let mime = p.mimeType || 'image/jpeg';
+    let name = p.fileName || `capsule-${i}.jpg`;
+    try {
+      const jpeg = await manipulateAsync(p.uri, [], { compress: 0.9, format: SaveFormat.JPEG });
+      uri = jpeg.uri;
+      mime = 'image/jpeg';
+      name = `${(p.fileName || `capsule-${i}`).replace(/\.[^.]+$/, '')}.jpg`;
+    } catch {
+      // 변환 실패 시 원본 그대로 업로드
+    }
+    const presigned = await createPresignedUrl({
+      mediaType: 'photo',
+      contentType: mime,
+      originalFileName: name,
+      purpose: 'capsule',
+    });
+    await uploadToPresignedUrl({
+      uploadUrl: presigned.uploadUrl,
+      method: presigned.method,
+      headers: presigned.headers,
+      fileUri: uri,
+      contentType: mime,
+    });
+    keys.push(presigned.objectKey);
+  }
+  return keys;
+}
 
 // 커플 타임캡슐 목록 조회. → { sealed:[], open:[] } (화면용으로 shape)
 export function fetchCapsules(status = 'all') {

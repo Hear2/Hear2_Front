@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Animated,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
@@ -37,6 +38,15 @@ const TimeCapsuleScreen = ({ navigation }) => {
   const featured = capsules.sealed[0] || null;
   const gridItems = capsules.sealed.slice(1);
   const openItems = capsules.open;
+
+  // 아직 잠긴 캡슐을 누르면 개봉까지 남은 기간을 안내.
+  const onSealedPress = (item) => {
+    const message =
+      item.dday > 0
+        ? `개봉까지 D-${item.dday}\n${item.dateLabel}에 열려요 🔒`
+        : '오늘 개봉 예정이에요! 조금만 기다려 주세요 🔓';
+    Alert.alert(item.name, message, [{ text: '확인' }]);
+  };
 
   useEffect(() => {
     Animated.loop(
@@ -105,7 +115,11 @@ const TimeCapsuleScreen = ({ navigation }) => {
 
         {/* Main (가장 임박한) Capsule Card */}
         {featured && (
-          <TouchableOpacity style={styles.mainCapsule} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.mainCapsule}
+            activeOpacity={0.8}
+            onPress={() => onSealedPress(featured)}
+          >
             <View style={styles.mainCapsuleTop}>
               <Animated.Text style={[styles.capsuleEmoji, { transform: [{ scale: breatheAnim }] }]}>
                 {featured.emoji}
@@ -131,7 +145,12 @@ const TimeCapsuleScreen = ({ navigation }) => {
         {gridItems.length > 0 && (
           <View style={styles.gridRow}>
             {gridItems.map((item) => (
-              <TouchableOpacity key={item.id} style={styles.gridCard} activeOpacity={0.8}>
+              <TouchableOpacity
+                key={item.id}
+                style={styles.gridCard}
+                activeOpacity={0.8}
+                onPress={() => onSealedPress(item)}
+              >
                 <Text style={styles.gridEmoji}>{item.emoji}</Text>
                 <Text style={styles.gridTitle} numberOfLines={1}>{item.name}</Text>
                 <Text style={styles.gridDday}>{item.ddayLabel}</Text>

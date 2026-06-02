@@ -8,13 +8,17 @@ import {
   Animated,
   TextInput,
   Alert,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
 import Header from '../../components/common/Header';
 import CalendarPicker from '../../components/common/CalendarPicker';
-import { createCapsule } from '../../api/timeCapsuleAPI';
+import { createCapsule, uploadCapsulePhotos } from '../../api/timeCapsuleAPI';
+
+const MAX_PHOTOS = 9;
 
 const COVER_STYLES = [
   { id: 'letter', icon: '💌', label: '편지', colors: [colors.lavender, colors.peach] },
@@ -72,12 +76,6 @@ const daysUntil = (target) => {
 
 const formatDate = (d) =>
   `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${DOW_LABEL[d.getDay()]})`;
-
-const SEALED_PHOTOS = [
-  { id: 1, colors: ['#FFE4EE', '#FFB590'], emoji: '🌸' },
-  { id: 2, colors: ['#C5E8D5', '#E8F5E9'], emoji: '🥂' },
-  { id: 3, colors: ['#E8F0FF', '#C5B8FF'], emoji: '🎢' },
-];
 
 const StepperChip = ({
   active,
@@ -232,9 +230,41 @@ const TimeCapsuleCreateScreen = ({ navigation }) => {
     setPreset('custom');
   };
 
+  const [photos, setPhotos] = useState([]); // { id, uri, mimeType, fileName }
   const [saving, setSaving] = useState(false);
 
-  const handleSeal = () => {
+  const pickPhotos = async () => {
+    const remaining = MAX_PHOTOS - photos.length;
+    if (remaining <= 0) {
+      Alert.alert(`사진은 최대 ${MAX_PHOTOS}장까지 담을 수 있어요`);
+      return;
+    }
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('사진 접근 권한이 필요해요', '설정에서 사진 접근을 허용해 주세요.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
+      quality: 1,
+    });
+    if (result.canceled) return;
+    const picked = (result.assets || []).map((a, i) => ({
+      id: `${a.assetId || a.uri}-${i}`,
+      uri: a.uri,
+      mimeType: a.mimeType,
+      fileName: a.fileName,
+    }));
+    setPhotos((prev) => [...prev, ...picked].slice(0, MAX_PHOTOS));
+  };
+
+  const removePhoto = (id) => {
+    setPhotos((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  const handleSeal = async () => {
     if (saving) return;
     const trimmedName = name.trim();
     if (!trimmedName) {
@@ -250,21 +280,23 @@ const TimeCapsuleCreateScreen = ({ navigation }) => {
       return;
     }
     setSaving(true);
-    // 사진은 presigned 업로드 연동 전까지 미전송(photoObjectKeys 생략).
-    createCapsule({
-      name: trimmedName,
-      cover,
-      openAt: openDate,
-      letter: letter.trim(),
-      options,
-    })
-      .then(() => {
-        navigation?.goBack();
-      })
-      .catch((e) => {
-        Alert.alert('봉인 실패', e?.message || '잠시 후 다시 시도해 주세요');
-      })
-      .finally(() => setSaving(false));
+    try {
+      // 사진을 presigned URL로 업로드 → objectKey 수집 → 캡슐 생성에 전달.
+      const photoObjectKeys = await uploadCapsulePhotos(photos);
+      await createCapsule({
+        name: trimmedName,
+        cover,
+        openAt: openDate,
+        letter: letter.trim(),
+        photoObjectKeys,
+        options,
+      });
+      navigation?.goBack();
+    } catch (e) {
+      Alert.alert('봉인 실패', e?.message || '잠시 후 다시 시도해 주세요');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -467,41 +499,28 @@ const TimeCapsuleCreateScreen = ({ navigation }) => {
           <View style={{ marginTop: 12 }}>
             <View style={styles.subRow}>
               <Text style={styles.subLabel}>📷 사진</Text>
-              <Text style={styles.subCount}>3 / 9</Text>
+              <Text style={styles.subCount}>{photos.length} / {MAX_PHOTOS}</Text>
             </View>
             <View style={styles.photoRow}>
-              {SEALED_PHOTOS.map((p) => (
-                <LinearGradient
-                  key={p.id}
-                  colors={p.colors}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.photoTile}
-                >
-                  <Text style={styles.photoEmoji}>{p.emoji}</Text>
-                  <View style={styles.photoRemove}>
+              {photos.map((p) => (
+                <View key={p.id} style={styles.photoTile}>
+                  <Image source={{ uri: p.uri }} style={styles.photoImg} resizeMode="cover" />
+                  <TouchableOpacity
+                    style={styles.photoRemove}
+                    onPress={() => removePhoto(p.id)}
+                    hitSlop={6}
+                    activeOpacity={0.8}
+                  >
                     <Text style={styles.photoRemoveText}>×</Text>
-                  </View>
-                </LinearGradient>
+                  </TouchableOpacity>
+                </View>
               ))}
-              <TouchableOpacity style={styles.photoAdd} activeOpacity={0.7}>
-                <Text style={styles.photoAddIcon}>+</Text>
-              </TouchableOpacity>
+              {photos.length < MAX_PHOTOS && (
+                <TouchableOpacity style={styles.photoAdd} activeOpacity={0.7} onPress={pickPhotos}>
+                  <Text style={styles.photoAddIcon}>+</Text>
+                </TouchableOpacity>
+              )}
             </View>
-          </View>
-
-          {/* song */}
-          <View style={styles.songCard}>
-            <View style={styles.songIcon}>
-              <Text style={{ color: '#FFFFFF', fontSize: 16 }}>🎵</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.songTitle} numberOfLines={1}>
-                오늘의 우리 노래
-              </Text>
-              <Text style={styles.songArtist}>아이유 — 봄 사랑 벚꽃 말고</Text>
-            </View>
-            <Text style={styles.songChevron}>›</Text>
           </View>
         </View>
 
@@ -739,16 +758,15 @@ const styles = StyleSheet.create({
   subRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   subLabel: { fontSize: 12, fontWeight: '700', color: colors.ink },
   subCount: { fontSize: 10, color: '#888' },
-  photoRow: { flexDirection: 'row', gap: 6 },
+  photoRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   photoTile: {
-    flex: 1,
+    width: '23%',
     aspectRatio: 1,
     borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+    overflow: 'hidden',
     position: 'relative',
   },
-  photoEmoji: { fontSize: 22 },
+  photoImg: { width: '100%', height: '100%' },
   photoRemove: {
     position: 'absolute',
     top: 4,
@@ -762,7 +780,7 @@ const styles = StyleSheet.create({
   },
   photoRemoveText: { color: '#FFFFFF', fontSize: 11 },
   photoAdd: {
-    flex: 1,
+    width: '23%',
     aspectRatio: 1,
     borderRadius: 10,
     backgroundColor: '#FAFAFA',
@@ -773,27 +791,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   photoAddIcon: { fontSize: 20, color: '#BBB' },
-
-  songCard: {
-    marginTop: 10,
-    padding: 10,
-    borderRadius: 12,
-    backgroundColor: '#F5F8FF',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  songIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#A78BFA',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  songTitle: { fontSize: 12, fontWeight: '700', color: colors.ink },
-  songArtist: { fontSize: 10, color: '#888', marginTop: 2 },
-  songChevron: { fontSize: 14, color: '#A78BFA', fontWeight: '700' },
 
   optRow: {
     flexDirection: 'row',
