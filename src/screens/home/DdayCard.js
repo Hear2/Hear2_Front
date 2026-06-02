@@ -1,33 +1,9 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, TouchableOpacity } from 'react-native';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, Animated, TouchableOpacity, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Ellipse, Circle, Path } from 'react-native-svg';
+import { useFocusEffect } from '@react-navigation/native';
 import colors from '../../constants/colors';
-
-const Mascot = ({ size = 80 }) => (
-  <Svg width={size} height={size} viewBox="0 0 200 200">
-    <Ellipse cx={100} cy={120} rx={70} ry={60} fill="#FFE08A" />
-    <Circle cx={78} cy={105} r={6} fill="#1E2152" />
-    <Circle cx={122} cy={105} r={6} fill="#1E2152" />
-    <Circle cx={80} cy={103} r={2} fill="#fff" />
-    <Circle cx={124} cy={103} r={2} fill="#fff" />
-    <Path
-      d="M86 130 Q 100 142 114 130"
-      stroke="#1E2152"
-      strokeWidth={3}
-      fill="none"
-      strokeLinecap="round"
-    />
-    <Ellipse cx={62} cy={120} rx={10} ry={6} fill="#FFB3CE" opacity={0.7} />
-    <Ellipse cx={138} cy={120} rx={10} ry={6} fill="#FFB3CE" opacity={0.7} />
-    <Path d="M96 80 L100 70 L104 80 Z" fill="#FFA94D" />
-    <Path
-      d="M75 60 L86 75 L100 55 L114 75 L125 60 L120 78 L80 78 Z"
-      fill="#FFD93D"
-    />
-    <Circle cx={100} cy={55} r={3} fill="#FF6B9D" />
-  </Svg>
-);
+import { fetchCharacter } from '../../api/characterAPI';
 
 const DdayCard = ({
   daysCount = 247,
@@ -39,6 +15,22 @@ const DdayCard = ({
   const heartAnim = useRef(new Animated.Value(0)).current;
   const sparkleAnim = useRef(new Animated.Value(0.3)).current;
   const breatheAnim = useRef(new Animated.Value(1)).current;
+  const [character, setCharacter] = useState(null);
+
+  // 홈이 포커스될 때마다 재조회 → 캐릭터 화면에서 이름을 바꾸고 돌아오면 즉시 반영된다.
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      fetchCharacter()
+        .then((res) => {
+          if (alive) setCharacter(res);
+        })
+        .catch(() => {});
+      return () => {
+        alive = false;
+      };
+    }, [])
+  );
 
   useEffect(() => {
     Animated.loop(
@@ -90,10 +82,18 @@ const DdayCard = ({
         hitSlop={6}
       >
         <Animated.View style={[styles.characterBubble, { transform: [{ scale: breatheAnim }] }]}>
-          <Mascot size={88} />
+          {character && (
+            <Image
+              source={character.image}
+              style={styles.characterImage}
+              resizeMode="contain"
+            />
+          )}
         </Animated.View>
         <View style={styles.levelPill}>
-          <Text style={styles.levelText}>Lv.12</Text>
+          <Text style={styles.levelText} numberOfLines={1}>
+            {character ? character.name : ''}
+          </Text>
         </View>
       </TouchableOpacity>
 
@@ -159,14 +159,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   characterBubble: {
-    width: 110,
-    height: 110,
-    borderRadius: 26,
+    width: 136,
+    height: 136,
+    borderRadius: 30,
     backgroundColor: 'rgba(255,255,255,0.25)',
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  characterImage: {
+    width: 124,
+    height: 132,
   },
   levelPill: {
     marginTop: 8,

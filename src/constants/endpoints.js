@@ -112,4 +112,14 @@ export default {
     history: `${BASE_URL}/api/v1/qna/history`,
     detail: (questionId) => `${BASE_URL}/api/v1/qna/${questionId}`,
   },
+
+  // 캐릭터 키우기 (커플 캐릭터). 생 DTO 반환 (ApiResponse 래핑 없음).
+  //  GET  /api/v1/character                    → { characterName, exp, stage }
+  //  GET  /api/v1/character/exp/history/today  → { totalExp, items:[{sourceType,expAmount,createdAt}] }
+  //  PATCH /api/v1/character/name { name }      → CharacterResponse
+  character: {
+    get: `${BASE_URL}/api/v1/character`,
+    name: `${BASE_URL}/api/v1/character/name`,
+    expHistoryToday: `${BASE_URL}/api/v1/character/exp/history/today`,
+  },
 };

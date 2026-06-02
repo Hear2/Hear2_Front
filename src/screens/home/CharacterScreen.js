@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,53 +6,77 @@ import {
   StyleSheet,
   Animated,
   Easing,
+  Image,
+  Modal,
+  TextInput,
+  TouchableOpacity,
+  Pressable,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Ellipse, Circle, Path } from 'react-native-svg';
 import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
 import Header from '../../components/common/Header';
+import { fetchCharacter, updateCharacterName } from '../../api/characterAPI';
 
-const xpStats = [
-  { label: '대화', value: '+24' },
-  { label: '기록', value: '+12' },
-  { label: '감정', value: '😊' },
-];
-
-const growthLog = [
-  { icon: '💬', text: '"사랑해"라고 말한 횟수가 32번이에요', xp: '+25 XP' },
-  { icon: '🌸', text: '함께 봄나들이 사진을 추가했어요', xp: '+15 XP' },
-  { icon: '☕', text: '예진님이 지호님에게 커피를 사줬어요', xp: '+10 XP' },
-];
-
-const Mascot = () => (
-  <Svg width={170} height={170} viewBox="0 0 200 200">
-    <Ellipse cx={100} cy={120} rx={70} ry={60} fill="#FFE08A" />
-    <Circle cx={78} cy={105} r={6} fill="#1E2152" />
-    <Circle cx={122} cy={105} r={6} fill="#1E2152" />
-    <Circle cx={80} cy={103} r={2} fill="#fff" />
-    <Circle cx={124} cy={103} r={2} fill="#fff" />
-    <Path
-      d="M86 130 Q 100 142 114 130"
-      stroke="#1E2152"
-      strokeWidth={3}
-      fill="none"
-      strokeLinecap="round"
-    />
-    <Ellipse cx={62} cy={120} rx={10} ry={6} fill="#FFB3CE" opacity={0.7} />
-    <Ellipse cx={138} cy={120} rx={10} ry={6} fill="#FFB3CE" opacity={0.7} />
-    <Path d="M96 80 L100 70 L104 80 Z" fill="#FFA94D" />
-    <Path
-      d="M75 60 L86 75 L100 55 L114 75 L125 60 L120 78 L80 78 Z"
-      fill="#FFD93D"
-    />
-    <Circle cx={100} cy={55} r={3} fill="#FF6B9D" />
-  </Svg>
-);
+const NAME_MAX = 10; // BE @Size(min=1,max=10)
 
 const CharacterScreen = ({ navigation }) => {
+  const [data, setData] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
   const breatheAnim = useRef(new Animated.Value(1)).current;
   const xpAnim = useRef(new Animated.Value(0)).current;
+
+  const openEdit = () => {
+    setNameInput(data?.name ?? '');
+    setError(null);
+    setEditing(true);
+  };
+
+  const closeEdit = () => {
+    if (!saving) setEditing(false);
+  };
+
+  const onSaveName = () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed) {
+      setError('이름을 입력해 주세요');
+      return;
+    }
+    if (trimmed === data?.name) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    updateCharacterName(trimmed)
+      .then((res) => {
+        // 이름만 갱신 — PATCH 응답엔 breakdown/history가 없으므로 덮어쓰지 않는다.
+        setData((prev) => (prev ? { ...prev, name: res.name } : prev));
+        setEditing(false);
+      })
+      .catch((e) => {
+        setError(e?.message || '이름을 바꾸지 못했어요');
+      })
+      .finally(() => setSaving(false));
+  };
+
+  useEffect(() => {
+    let alive = true;
+    fetchCharacter()
+      .then((res) => {
+        if (alive) setData(res);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     Animated.loop(
@@ -71,18 +95,25 @@ const CharacterScreen = ({ navigation }) => {
         }),
       ])
     ).start();
+  }, [breatheAnim]);
 
+  useEffect(() => {
+    if (!data) return;
+    xpAnim.setValue(0);
     Animated.timing(xpAnim, {
       toValue: 1,
       duration: 1100,
+      delay: 300,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
-  }, []);
+  }, [data, xpAnim]);
 
+  const isMax = data?.nextStageExp == null;
+  const pct = data?.progressPercent ?? 0;
   const xpWidth = xpAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ['0%', '74%'],
+    outputRange: ['0%', `${pct}%`],
   });
 
   return (
@@ -91,70 +122,173 @@ const CharacterScreen = ({ navigation }) => {
       <Header title="우리의 캐릭터" showBack onBack={() => navigation?.goBack()} />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        {/* Mascot */}
-        <View style={styles.mascotWrap}>
-          <Animated.View style={[styles.mascotBubble, { transform: [{ scale: breatheAnim }] }]}>
-            <LinearGradient
-              colors={['#FFE4EE', '#FFB590']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.mascotGradient}
+        {data && (
+          <>
+            {/* Mascot */}
+            <View style={styles.mascotWrap}>
+              <Animated.View style={[styles.mascotBubble, { transform: [{ scale: breatheAnim }] }]}>
+                <LinearGradient
+                  colors={['#FFE4EE', '#FFB590']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.mascotGradient}
+                >
+                  <Image source={data.image} style={styles.mascotImage} resizeMode="contain" />
+                </LinearGradient>
+              </Animated.View>
+            </View>
+
+            {/* Character name (탭하면 변경) */}
+            <TouchableOpacity
+              style={styles.nameRow}
+              onPress={openEdit}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="캐릭터 이름 변경"
             >
-              <Mascot />
-            </LinearGradient>
-          </Animated.View>
-        </View>
+              <Text style={styles.charName} numberOfLines={1}>
+                {data.name}
+              </Text>
+              <View style={styles.editBadge}>
+                <Text style={styles.editIcon}>✏️</Text>
+              </View>
+            </TouchableOpacity>
 
-        {/* Level pill */}
-        <View style={styles.levelPillWrap}>
-          <View style={styles.levelPill}>
-            <Text style={styles.levelText}>Lv.12</Text>
-            <View style={styles.levelDivider} />
-            <Text style={styles.levelName}>해피</Text>
-          </View>
-          <Text style={styles.moodLine}>감정: 😊 기쁨 · 활발한 성격</Text>
-        </View>
+            {/* Stage pill */}
+            <View style={styles.levelPillWrap}>
+              <View style={styles.levelPill}>
+                <Text style={styles.levelText}>{data.stage}단계</Text>
+                <View style={styles.levelDivider} />
+                <Text style={styles.levelName}>{data.stageTitle}</Text>
+              </View>
+              <Text style={styles.moodLine}>
+                {isMax
+                  ? '마지막 진화 단계예요 💖'
+                  : `다음 진화: ${data.nextStageTitle}`}
+              </Text>
+            </View>
 
-        {/* XP card */}
-        <View style={styles.xpCard}>
-          <View style={styles.xpHeader}>
-            <Text style={styles.xpHeaderLabel}>다음 레벨까지</Text>
-            <Text style={styles.xpHeaderValue}>740 / 1000 XP</Text>
-          </View>
-          <View style={styles.xpBarBg}>
-            <Animated.View style={[styles.xpBarFillWrap, { width: xpWidth }]}>
-              <LinearGradient
-                colors={[colors.pink, colors.peach]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.xpBarFill}
-              />
-            </Animated.View>
-          </View>
-          <View style={styles.xpStatsRow}>
-            {xpStats.map((s, i) => (
-              <View key={i} style={styles.xpStatItem}>
-                <Text style={styles.xpStatLabel}>{s.label}</Text>
-                <Text style={styles.xpStatValue}>{s.value}</Text>
+            {/* XP card */}
+            <View style={styles.xpCard}>
+              <View style={styles.xpHeader}>
+                <Text style={styles.xpHeaderLabel}>
+                  {isMax ? '최고 단계 달성 💖' : '다음 단계까지'}
+                </Text>
+                <Text style={styles.xpHeaderValue}>
+                  {isMax
+                    ? `${data.exp} EXP`
+                    : `${data.exp} / ${data.nextStageExp} EXP`}
+                </Text>
+              </View>
+              <View style={styles.xpBarBg}>
+                <Animated.View style={[styles.xpBarFillWrap, { width: xpWidth }]}>
+                  <LinearGradient
+                    colors={[colors.pink, colors.peach]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.xpBarFill}
+                  />
+                </Animated.View>
+              </View>
+              <Text style={styles.xpCaption}>
+                {isMax
+                  ? '둘이 함께 끝까지 키워냈어요!'
+                  : `다음 단계까지 ${data.remainingExp} EXP 남았어요 (${pct}%)`}
+              </Text>
+
+              {/* 오늘 모은 EXP (소스별) */}
+              <View style={styles.xpStatsRow}>
+                {data.breakdown.map((b) => (
+                  <View key={b.source} style={styles.xpStatItem}>
+                    <Text style={styles.xpStatEmoji}>{b.emoji}</Text>
+                    <Text style={styles.xpStatValue}>+{b.today}</Text>
+                    <Text style={styles.xpStatLabel}>{b.label}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.dailyCapLine}>
+                오늘 +{data.todayExp} EXP · 일일 최대 {data.dailyCap}
+              </Text>
+            </View>
+
+            {/* Growth log */}
+            <Text style={styles.sectionTitle}>오늘의 성장 기록</Text>
+            {data.history.map((g, i) => (
+              <View key={i} style={styles.logRow}>
+                <View style={styles.logIconBox}>
+                  <Text style={styles.logIcon}>{g.icon}</Text>
+                </View>
+                <Text style={styles.logText}>{g.text}</Text>
+                <Text style={styles.logXp}>{g.xp}</Text>
               </View>
             ))}
-          </View>
-        </View>
 
-        {/* Growth log */}
-        <Text style={styles.sectionTitle}>오늘의 성장 기록</Text>
-        {growthLog.map((g, i) => (
-          <View key={i} style={styles.logRow}>
-            <View style={styles.logIconBox}>
-              <Text style={styles.logIcon}>{g.icon}</Text>
-            </View>
-            <Text style={styles.logText}>{g.text}</Text>
-            <Text style={styles.logXp}>{g.xp}</Text>
-          </View>
-        ))}
-
-        <View style={{ height: 40 }} />
+            <View style={{ height: 40 }} />
+          </>
+        )}
       </ScrollView>
+
+      {/* 이름 변경 모달 */}
+      <Modal
+        visible={editing}
+        transparent
+        animationType="fade"
+        onRequestClose={closeEdit}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeEdit} />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>캐릭터 이름 바꾸기</Text>
+            <Text style={styles.modalSub}>
+              둘이 함께 키우는 캐릭터예요. 바꾸면 상대에게도 똑같이 보여요 💞
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={nameInput}
+              onChangeText={(t) => {
+                setNameInput(t);
+                if (error) setError(null);
+              }}
+              maxLength={NAME_MAX}
+              placeholder={`이름 (최대 ${NAME_MAX}자)`}
+              placeholderTextColor="#C9A9B5"
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={onSaveName}
+              editable={!saving}
+            />
+            <Text style={styles.counter}>
+              {nameInput.length}/{NAME_MAX}
+            </Text>
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.cancelBtn]}
+                onPress={closeEdit}
+                disabled={saving}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cancelBtnText}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.saveBtn, saving && styles.saveBtnDisabled]}
+                onPress={onSaveName}
+                disabled={saving}
+                activeOpacity={0.8}
+              >
+                {saving ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.saveBtnText}>저장</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 };
@@ -191,6 +325,40 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 30,
     elevation: 8,
+  },
+  mascotImage: {
+    width: 170,
+    height: 185,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 4,
+    paddingHorizontal: 24,
+  },
+  charName: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.ink,
+    maxWidth: '80%',
+  },
+  editBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  editIcon: {
+    fontSize: 13,
   },
   levelPillWrap: {
     alignItems: 'center',
@@ -267,8 +435,13 @@ const styles = StyleSheet.create({
   xpBarFill: {
     flex: 1,
   },
+  xpCaption: {
+    marginTop: 8,
+    fontSize: 11,
+    color: colors.ink3,
+  },
   xpStatsRow: {
-    marginTop: 10,
+    marginTop: 12,
     flexDirection: 'row',
     gap: 8,
   },
@@ -279,15 +452,25 @@ const styles = StyleSheet.create({
     backgroundColor: colors.pinkTint,
     alignItems: 'center',
   },
-  xpStatLabel: {
-    fontSize: 11,
-    color: '#999',
+  xpStatEmoji: {
+    fontSize: 16,
   },
   xpStatValue: {
     fontSize: 14,
     fontWeight: '700',
     color: colors.heartRed,
     marginTop: 2,
+  },
+  xpStatLabel: {
+    fontSize: 11,
+    color: '#999',
+    marginTop: 2,
+  },
+  dailyCapLine: {
+    marginTop: 10,
+    fontSize: 11,
+    color: colors.ink3,
+    textAlign: 'center',
   },
   sectionTitle: {
     marginTop: 16,
@@ -324,6 +507,93 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: colors.pink,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(40,20,30,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.ink,
+    textAlign: 'center',
+  },
+  modalSub: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.ink3,
+    textAlign: 'center',
+  },
+  input: {
+    marginTop: 16,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#FFE4EE',
+    backgroundColor: '#FFF8FB',
+    paddingHorizontal: 14,
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.ink,
+  },
+  counter: {
+    marginTop: 6,
+    fontSize: 11,
+    color: colors.ink3,
+    textAlign: 'right',
+  },
+  errorText: {
+    marginTop: 6,
+    fontSize: 12,
+    color: colors.heartRed,
+    textAlign: 'center',
+  },
+  modalBtnRow: {
+    marginTop: 16,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modalBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelBtn: {
+    backgroundColor: colors.pinkTint,
+  },
+  cancelBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.ink3,
+  },
+  saveBtn: {
+    backgroundColor: colors.pink,
+  },
+  saveBtnDisabled: {
+    opacity: 0.6,
+  },
+  saveBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });
 
