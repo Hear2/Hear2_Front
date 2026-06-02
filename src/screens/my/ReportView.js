@@ -23,6 +23,28 @@ import endpoints from '../../constants/endpoints';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCoupleReport } from '../../api/reportAPI';
 
+// 많이 쓴 단어: 배열은 빈도 내림차순.
+// 크기/굵기는 순위로 강조(상위일수록 큼)하되, 색은 알록달록하게 구분(상위는 선명, 하위는 옅게).
+const WORD_TIERS = [
+  { size: 30, weight: '800', colors: ['#FC2648', '#FF4F8B', '#7B5CFF'] },
+  { size: 24, weight: '800', colors: ['#FF5C8A', '#FF8A4C', '#5B8DEF'] },
+  { size: 19, weight: '700', colors: ['#FF85AE', '#3FB984', '#F5B400', '#5B8DEF'] },
+  { size: 15, weight: '600', colors: ['#9AA7B2', '#F0A8C6', '#86C9A8'] },
+  { size: 13, weight: '500', colors: ['#B8C0C8', '#D6A8BE'] },
+];
+function wordTier(index, total) {
+  const t = Math.min(
+    WORD_TIERS.length - 1,
+    Math.floor((index / Math.max(1, total)) * WORD_TIERS.length),
+  );
+  const tier = WORD_TIERS[t];
+  return {
+    size: tier.size,
+    weight: tier.weight,
+    color: tier.colors[index % tier.colors.length],
+  };
+}
+
 // MOCK 응답 — endpoints.MOCK === true일 때 사용. 백엔드 schema 모양 그대로.
 const MOCK_REPORT = {
   reportType: 'WEEKLY',
@@ -241,30 +263,28 @@ function ReportBody({ report, breathAnim, isMonthly }) {
         </>
       )}
 
-      {/* Most used words */}
+      {/* Most used words (빈도 내림차순 → 상위일수록 크고 진하게 강조) */}
       {Array.isArray(report?.mostUsedWords) && report.mostUsedWords.length > 0 && (
         <>
           <Text style={styles.sectionTitle}>많이 쓴 단어</Text>
           <View style={styles.wordsCard}>
-            {report.mostUsedWords.map((w, i) => (
-              <View key={`${w}-${i}`} style={styles.wordChip}>
-                <Text style={styles.wordText}>{typeof w === 'string' ? w : w.word}</Text>
-              </View>
-            ))}
+            {report.mostUsedWords.map((w, i) => {
+              const word = typeof w === 'string' ? w : w.word;
+              const tier = wordTier(i, report.mostUsedWords.length);
+              return (
+                <Text
+                  key={`${word}-${i}`}
+                  style={[
+                    styles.wordCloudItem,
+                    { fontSize: tier.size, fontWeight: tier.weight, color: tier.color },
+                  ]}
+                >
+                  {word}
+                </Text>
+              );
+            })}
           </View>
         </>
-      )}
-
-      {/* Monthly-only sections */}
-      {isMonthly && report?.relationshipHealth && (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>관계 건강도</Text>
-          <Text style={styles.bodyText}>
-            {typeof report.relationshipHealth === 'string'
-              ? report.relationshipHealth
-              : JSON.stringify(report.relationshipHealth)}
-          </Text>
-        </View>
       )}
 
       {/* AI Insight */}
@@ -375,9 +395,8 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: '700', color: colors.ink, marginBottom: 12, marginTop: 8 },
   bodyText: { fontSize: 13, color: colors.ink2, lineHeight: 20 },
 
-  wordsCard: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, backgroundColor: colors.bgSoft, borderRadius: 12, padding: 12, marginBottom: 16 },
-  wordChip: { backgroundColor: colors.pinkTint, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
-  wordText: { fontSize: 12, color: colors.pink, fontWeight: '600' },
+  wordsCard: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bgSoft, borderRadius: 12, paddingVertical: 18, paddingHorizontal: 14, marginBottom: 16 },
+  wordCloudItem: { marginHorizontal: 7, marginVertical: 5 },
 
   insightCard: {
     borderRadius: 20,

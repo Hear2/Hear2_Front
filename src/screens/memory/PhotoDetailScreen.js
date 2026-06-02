@@ -395,31 +395,6 @@ export default function PhotoDetailScreen({ navigation, route }) {
             </View>
           </View>
           )}
-
-          {/* Connected event */}
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => {
-              navigation?.navigate?.('MainTabs', {
-                screen: '캘린더',
-                params: { jumpTo: { y: 2026, m: 3 } },
-              });
-              navigation?.goBack?.();
-            }}
-            style={styles.eventCard}
-          >
-            <Text style={styles.eventLabel}>🔗 연결된 일정</Text>
-            <View style={styles.eventRow}>
-              <View style={styles.eventIconWrap}>
-                <Text style={styles.eventIcon}>📅</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.eventTitle}>서울숲 데이트 🌸</Text>
-                <Text style={styles.eventTime}>4월 12일 (토) 오후 2:00 — 7:00</Text>
-              </View>
-              <Text style={styles.eventChevron}>›</Text>
-            </View>
-          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -763,33 +738,6 @@ const styles = StyleSheet.create({
   },
   commentSendText: { color: '#fff', fontSize: 12, fontWeight: '700' },
 
-  eventCard: {
-    marginTop: 12,
-    padding: 14,
-    borderRadius: 14,
-    backgroundColor: '#FFF8FB',
-    borderWidth: 1,
-    borderColor: '#FFD0E0',
-  },
-  eventLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.pink,
-    marginBottom: 8,
-  },
-  eventRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  eventIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,138,178,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  eventIcon: { fontSize: 18 },
-  eventTitle: { fontSize: 13, fontWeight: '800', color: colors.ink },
-  eventTime: { fontSize: 11, color: '#888', marginTop: 2 },
-  eventChevron: { fontSize: 20, color: colors.inkMute, fontWeight: '300' },
 
   actionBar: {
     position: 'absolute',
