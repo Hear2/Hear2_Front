@@ -7,12 +7,14 @@ import {
   StyleSheet,
   Animated,
   TextInput,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
 import Header from '../../components/common/Header';
 import CalendarPicker from '../../components/common/CalendarPicker';
+import { createCapsule } from '../../api/timeCapsuleAPI';
 
 const COVER_STYLES = [
   { id: 'letter', icon: '💌', label: '편지', colors: [colors.lavender, colors.peach] },
@@ -230,6 +232,41 @@ const TimeCapsuleCreateScreen = ({ navigation }) => {
     setPreset('custom');
   };
 
+  const [saving, setSaving] = useState(false);
+
+  const handleSeal = () => {
+    if (saving) return;
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      Alert.alert('캡슐 이름을 입력해 주세요');
+      return;
+    }
+    if (!letter.trim()) {
+      Alert.alert('편지를 입력해 주세요');
+      return;
+    }
+    if (dDay < 1) {
+      Alert.alert('개봉일은 내일 이후로 설정해 주세요');
+      return;
+    }
+    setSaving(true);
+    // 사진은 presigned 업로드 연동 전까지 미전송(photoObjectKeys 생략).
+    createCapsule({
+      name: trimmedName,
+      cover,
+      openAt: openDate,
+      letter: letter.trim(),
+      options,
+    })
+      .then(() => {
+        navigation?.goBack();
+      })
+      .catch((e) => {
+        Alert.alert('봉인 실패', e?.message || '잠시 후 다시 시도해 주세요');
+      })
+      .finally(() => setSaving(false));
+  };
+
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -243,7 +280,7 @@ const TimeCapsuleCreateScreen = ({ navigation }) => {
         showBack
         onBack={() => navigation?.goBack()}
         right={
-          <TouchableOpacity activeOpacity={0.7} hitSlop={8}>
+          <TouchableOpacity activeOpacity={0.7} hitSlop={8} onPress={handleSeal} disabled={saving}>
             <Text style={styles.sealAction}>봉인</Text>
           </TouchableOpacity>
         }
@@ -513,7 +550,8 @@ const TimeCapsuleCreateScreen = ({ navigation }) => {
         <TouchableOpacity
           style={styles.sealBtn}
           activeOpacity={0.85}
-          onPress={() => navigation?.goBack()}
+          onPress={handleSeal}
+          disabled={saving}
         >
           <LinearGradient
             colors={[colors.lavender, colors.heartRed]}
@@ -522,7 +560,7 @@ const TimeCapsuleCreateScreen = ({ navigation }) => {
             style={styles.sealBtnInner}
           >
             <Text style={styles.sealBtnText}>
-              🔒 {Math.max(dDay, 0)}일간 봉인하기
+              {saving ? '봉인 중…' : `🔒 ${Math.max(dDay, 0)}일간 봉인하기`}
             </Text>
           </LinearGradient>
         </TouchableOpacity>

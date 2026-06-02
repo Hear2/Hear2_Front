@@ -113,6 +113,18 @@ export default {
     detail: (questionId) => `${BASE_URL}/api/v1/qna/${questionId}`,
   },
 
+  // 타임캡슐 (커플 타임캡슐). ⚠️ ApiResponse<T> 래핑 → getUnwrapped/postUnwrapped 사용.
+  //  POST /api/v1/capsule                    생성
+  //  GET  /api/v1/capsule?status=all|sealed|open  목록 { sealed:[], open:[] }
+  //  GET  /api/v1/capsule/{id}               상세
+  //  GET  /api/v1/capsule/{id}/share-card    공유 카드(open만)
+  timeCapsule: {
+    list: `${BASE_URL}/api/v1/capsule`,
+    create: `${BASE_URL}/api/v1/capsule`,
+    detail: (id) => `${BASE_URL}/api/v1/capsule/${id}`,
+    shareCard: (id) => `${BASE_URL}/api/v1/capsule/${id}/share-card`,
+  },
+
   // 캐릭터 키우기 (커플 캐릭터). 생 DTO 반환 (ApiResponse 래핑 없음).
   //  GET  /api/v1/character                    → { characterName, exp, stage }
   //  GET  /api/v1/character/exp/history/today  → { totalExp, items:[{sourceType,expAmount,createdAt}] }

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,18 +8,35 @@ import {
   Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
 import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
 import Header from '../../components/common/Header';
-
-const gridCapsules = [
-  { emoji: '🎂', title: '내년 생일까지', dday: 'D-127', locked: true },
-  { emoji: '🌊', title: '여름휴가 기록', dday: 'D-92', locked: true },
-];
+import { fetchCapsules } from '../../api/timeCapsuleAPI';
 
 const TimeCapsuleScreen = ({ navigation }) => {
   const breatheAnim = useRef(new Animated.Value(1)).current;
   const sparkleAnim = useRef(new Animated.Value(0)).current;
+  const [capsules, setCapsules] = useState({ sealed: [], open: [] });
+
+  // 화면 포커스마다 재조회 → 캡슐을 새로 봉인하고 돌아오면 바로 반영.
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      fetchCapsules()
+        .then((res) => {
+          if (alive) setCapsules(res);
+        })
+        .catch(() => {});
+      return () => {
+        alive = false;
+      };
+    }, []),
+  );
+
+  const featured = capsules.sealed[0] || null;
+  const gridItems = capsules.sealed.slice(1);
+  const openItems = capsules.open;
 
   useEffect(() => {
     Animated.loop(
@@ -77,63 +94,83 @@ const TimeCapsuleScreen = ({ navigation }) => {
         {/* Upcoming Label */}
         <Text style={styles.sectionTitle}>예정된 캡슐</Text>
 
-        {/* Main Capsule Card */}
-        <TouchableOpacity style={styles.mainCapsule} activeOpacity={0.8}>
-          <View style={styles.mainCapsuleTop}>
-            <Animated.Text style={[styles.capsuleEmoji, { transform: [{ scale: breatheAnim }] }]}>
-              🎄
-            </Animated.Text>
-            <View style={styles.mainCapsuleInfo}>
-              <Text style={styles.capsuleTitle}>2026 크리스마스 캡슐</Text>
-              <Text style={styles.capsuleDday}>D-263</Text>
-            </View>
+        {!featured && gridItems.length === 0 && (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyEmoji}>💌</Text>
+            <Text style={styles.emptyText}>
+              아직 예정된 캡슐이 없어요.{'\n'}미래의 우리에게 첫 캡슐을 보내보세요.
+            </Text>
           </View>
-          <View style={styles.capsuleProgressBg}>
-            <LinearGradient
-              colors={[colors.pink, colors.rose]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={[styles.capsuleProgressFill, { width: '28%' }]}
-            />
-          </View>
-          <Text style={styles.capsuleProgressLabel}>28% 채워짐</Text>
-        </TouchableOpacity>
+        )}
 
-        {/* 2-Column Grid */}
-        <View style={styles.gridRow}>
-          {gridCapsules.map((item, idx) => (
-            <TouchableOpacity key={idx} style={styles.gridCard} activeOpacity={0.8}>
-              <Text style={styles.gridEmoji}>{item.emoji}</Text>
-              <Text style={styles.gridTitle}>{item.title}</Text>
-              <Text style={styles.gridDday}>{item.dday}</Text>
-              {item.locked && (
+        {/* Main (가장 임박한) Capsule Card */}
+        {featured && (
+          <TouchableOpacity style={styles.mainCapsule} activeOpacity={0.8}>
+            <View style={styles.mainCapsuleTop}>
+              <Animated.Text style={[styles.capsuleEmoji, { transform: [{ scale: breatheAnim }] }]}>
+                {featured.emoji}
+              </Animated.Text>
+              <View style={styles.mainCapsuleInfo}>
+                <Text style={styles.capsuleTitle} numberOfLines={1}>{featured.name}</Text>
+                <Text style={styles.capsuleDday}>{featured.ddayLabel}</Text>
+              </View>
+            </View>
+            <View style={styles.capsuleProgressBg}>
+              <LinearGradient
+                colors={[colors.pink, colors.rose]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.capsuleProgressFill, { width: `${featured.progressPercent}%` }]}
+              />
+            </View>
+            <Text style={styles.capsuleProgressLabel}>{featured.progressPercent}% 채워짐</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* 2-Column Grid (나머지 예정 캡슐) */}
+        {gridItems.length > 0 && (
+          <View style={styles.gridRow}>
+            {gridItems.map((item) => (
+              <TouchableOpacity key={item.id} style={styles.gridCard} activeOpacity={0.8}>
+                <Text style={styles.gridEmoji}>{item.emoji}</Text>
+                <Text style={styles.gridTitle} numberOfLines={1}>{item.name}</Text>
+                <Text style={styles.gridDday}>{item.ddayLabel}</Text>
                 <View style={styles.lockBadge}>
                   <Text style={styles.lockText}>🔒</Text>
                 </View>
-              )}
-            </TouchableOpacity>
-          ))}
-        </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Opened Capsules */}
-        <Text style={styles.sectionTitle}>이미 열린 캡슐</Text>
-        <TouchableOpacity
-          style={styles.openedCapsule}
-          activeOpacity={0.7}
-          onPress={() => navigation?.navigate('TimeCapsuleOpenedScreen')}
-        >
-          <Text style={styles.openedEmoji}>💝</Text>
-          <View style={styles.openedInfo}>
-            <Text style={styles.openedTitle}>1주년 기념 캡슐</Text>
-            <View style={styles.openedMeta}>
-              <View style={styles.openedBadge}>
-                <Text style={styles.openedBadgeText}>오픈됨</Text>
-              </View>
-              <Text style={styles.openedDate}>2025.04.07</Text>
-            </View>
-          </View>
-          <Text style={styles.chevron}>{'>'}</Text>
-        </TouchableOpacity>
+        {openItems.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>이미 열린 캡슐</Text>
+            {openItems.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.openedCapsule}
+                activeOpacity={0.7}
+                onPress={() =>
+                  navigation?.navigate('TimeCapsuleOpenedScreen', { capsuleId: item.id })
+                }
+              >
+                <Text style={styles.openedEmoji}>{item.emoji}</Text>
+                <View style={styles.openedInfo}>
+                  <Text style={styles.openedTitle} numberOfLines={1}>{item.name}</Text>
+                  <View style={styles.openedMeta}>
+                    <View style={styles.openedBadge}>
+                      <Text style={styles.openedBadgeText}>오픈됨</Text>
+                    </View>
+                    <Text style={styles.openedDate}>{item.dateLabel}</Text>
+                  </View>
+                </View>
+                <Text style={styles.chevron}>{'>'}</Text>
+              </TouchableOpacity>
+            ))}
+          </>
+        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -205,6 +242,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.ink,
     marginBottom: 14,
+  },
+  emptyCard: {
+    backgroundColor: colors.bgApp,
+    borderRadius: 18,
+    paddingVertical: 28,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.line,
+    marginBottom: 24,
+  },
+  emptyEmoji: {
+    fontSize: 30,
+    marginBottom: 10,
+  },
+  emptyText: {
+    fontSize: 13,
+    color: colors.inkMute,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   mainCapsule: {
     backgroundColor: colors.bgApp,
