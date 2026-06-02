@@ -33,6 +33,9 @@ const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_ID;
 // 새로 추가: Android 네이티브용 OAuth client (dev build/standalone에서 사용).
 // Google Cloud Console에서 Android 타입 client 생성 (package=com.hear2.app, SHA-1=APK 키스토어 fingerprint).
 const GOOGLE_ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+// iOS 네이티브용 OAuth client (dev build/standalone iOS에서 사용).
+// Google Cloud Console에서 iOS 타입 client 생성 (bundleId=com.hear2.app).
+const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
 const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY;
 const KAKAO_AUTH_URL = 'https://kauth.kakao.com/oauth/authorize';
 const KAKAO_TOKEN_URL = 'https://kauth.kakao.com/oauth/token';
@@ -96,6 +99,7 @@ const LoginScreen = ({ navigation }) => {
     GOOGLE_ANDROID_CLIENT_ID || GOOGLE_WEB_CLIENT_ID || 'placeholder-not-configured';
   const [googleRequest, googleResponse, promptGoogle] = Google.useAuthRequest({
     androidClientId: googleAndroidClientResolved,
+    iosClientId: GOOGLE_IOS_CLIENT_ID || GOOGLE_WEB_CLIENT_ID || googleAndroidClientResolved,
     webClientId: GOOGLE_WEB_CLIENT_ID || googleAndroidClientResolved,
     scopes: ['openid', 'profile', 'email'],
     // responseType은 명시하지 않음 — Android client는 implicit(id_token) flow를 거부하므로

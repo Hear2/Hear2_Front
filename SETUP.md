@@ -35,8 +35,9 @@ npm install
 `hear2-app/.env`에 아래 3개를 채웁니다. **구글/카카오 로그인용**이며, 값은 팀에서 별도(슬랙/노션)로 공유받으세요.
 
 ```env
-EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=...
-EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=...
+EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=...   # Web client
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=... # Android 빌드용
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=...     # iOS 빌드용 (아이폰 시연 시 필요)
 EXPO_PUBLIC_KAKAO_REST_API_KEY=...
 ```
 

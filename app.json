@@ -30,7 +30,16 @@
       ]
     },
     "ios": {
-      "bundleIdentifier": "com.hear2.app"
+      "bundleIdentifier": "com.hear2.app",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.578275339228-a453k1htjcetua7f8cl208f81tr5h9qt"
+            ]
+          }
+        ]
+      }
     },
     "plugins": [
       "expo-asset",
