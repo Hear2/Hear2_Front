@@ -90,7 +90,18 @@ const buildHtml = ({ centerLat, centerLng, level, markers }) => `
         var overlays = [];
         markerInfos.forEach(function (m) {
           var pos = new kakao.maps.LatLng(m.lat, m.lng);
-          var marker = new kakao.maps.Marker({ position: pos, map: map, title: m.label || '' });
+          var markerOpts = { position: pos, map: map, title: m.label || '' };
+          if (m.color) {
+            var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="40" viewBox="0 0 30 40">'
+              + '<path d="M15 0C7 0 0 6 0 14c0 10 15 26 15 26s15-16 15-26C30 6 23 0 15 0z" fill="' + m.color + '" stroke="#ffffff" stroke-width="2.5"/>'
+              + '<circle cx="15" cy="14" r="5" fill="#ffffff"/></svg>';
+            markerOpts.image = new kakao.maps.MarkerImage(
+              'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg),
+              new kakao.maps.Size(30, 40),
+              { offset: new kakao.maps.Point(15, 40) }
+            );
+          }
+          var marker = new kakao.maps.Marker(markerOpts);
           kakao.maps.event.addListener(marker, 'click', function () {
             send({ type: 'marker', id: m.id });
           });

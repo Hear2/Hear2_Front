@@ -1,11 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 import * as Location from 'expo-location';
 import colors from '../../constants/colors';
@@ -58,65 +57,69 @@ const FitBoundsIcon = ({ color = '#1E2152' }) => (
   </Svg>
 );
 
+const RefreshIcon = ({ color = '#1E2152' }) => (
+  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+    <Path
+      d="M21 12a9 9 0 1 1-2.64-6.36"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+    <Path
+      d="M21 3v6h-6"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </Svg>
+);
+
+// 핀 색상: 예진(여) 핑크 / 지호(남) 파랑
+const FEMALE_PIN = '#FF6B9D';
+const MALE_PIN = '#4D96FF';
+
 // 파트너 위치는 임시 하드코딩 (백엔드 연결 전): 홍대입구역 부근
 const PARTNER_COORD = { lat: 37.5572, lng: 126.9244, label: '홍대입구' };
 // 내 위치 fallback (권한 거부 시): 연남동
 const FALLBACK_MY_COORD = { lat: 37.5641, lng: 126.9244, label: '연남동' };
 
-const haversineKm = (a, b) => {
-  const toRad = (d) => (d * Math.PI) / 180;
-  const R = 6371;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const s =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.asin(Math.sqrt(s));
-};
-
 const LocationShare = ({ navigation }) => {
   const mapRef = useRef(null);
   const [myCoord, setMyCoord] = useState(FALLBACK_MY_COORD);
-  const [myArea, setMyArea] = useState('연남동');
-  const [permissionGranted, setPermissionGranted] = useState(false);
   const [mapError, setMapError] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadMyLocation = useCallback(async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return null;
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const next = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+      setMyCoord(next);
+      return next;
+    } catch {
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') return;
-        if (!mounted) return;
-        setPermissionGranted(true);
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        if (!mounted) return;
-        const next = {
-          lat: loc.coords.latitude,
-          lng: loc.coords.longitude,
-        };
-        setMyCoord(next);
-        try {
-          const places = await Location.reverseGeocodeAsync({
-            latitude: next.lat,
-            longitude: next.lng,
-          });
-          const p = places?.[0];
-          if (p && mounted) {
-            const region = p.district || p.subregion || p.city || '';
-            if (region) setMyArea(region);
-          }
-        } catch (err) {
-          if (__DEV__) console.warn('reverseGeocodeAsync failed', err);
-        }
-      } catch {}
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    loadMyLocation();
+  }, [loadMyLocation]);
+
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    const next = await loadMyLocation();
+    const me = next || myCoord;
+    mapRef.current?.fitBounds([
+      { lat: me.lat, lng: me.lng },
+      { lat: PARTNER_COORD.lat, lng: PARTNER_COORD.lng },
+    ]);
+    setRefreshing(false);
+  }, [loadMyLocation, myCoord, refreshing]);
 
   const center = useMemo(
     () => ({
@@ -128,19 +131,15 @@ const LocationShare = ({ navigation }) => {
 
   const markers = useMemo(
     () => [
-      { id: 'me', lat: myCoord.lat, lng: myCoord.lng, label: '예진' },
+      { id: 'me', lat: myCoord.lat, lng: myCoord.lng, label: '예진', color: FEMALE_PIN },
       {
         id: 'partner',
         lat: PARTNER_COORD.lat,
         lng: PARTNER_COORD.lng,
         label: '지호',
+        color: MALE_PIN,
       },
     ],
-    [myCoord],
-  );
-
-  const distanceKm = useMemo(
-    () => haversineKm(myCoord, PARTNER_COORD).toFixed(1),
     [myCoord],
   );
 
@@ -158,9 +157,21 @@ const LocationShare = ({ navigation }) => {
         title="위치 공유"
         showBack
         onBack={() => navigation?.goBack()}
+        right={
+          <TouchableOpacity
+            onPress={handleRefresh}
+            disabled={refreshing}
+            style={styles.refreshBtn}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="위치 새로고침"
+          >
+            <RefreshIcon color={refreshing ? colors.ink3 : colors.ink} />
+          </TouchableOpacity>
+        }
       />
 
-      {/* 카카오 지도 */}
+      {/* 카카오 지도 (서로의 위치만 핀으로 표시) */}
       <View style={styles.mapArea}>
         {mapError ? (
           <View style={styles.mapFallback}>
@@ -203,63 +214,13 @@ const LocationShare = ({ navigation }) => {
           </View>
         )}
       </View>
-
-      {/* 바닥 시트 */}
-      <View style={styles.bottomSheet}>
-        <View style={styles.sheetHandle} />
-
-        <Text style={styles.distanceText}>
-          {distanceKm}km{' '}
-          <Text style={styles.distanceHeart}>♥</Text> 가까워지는 중
-        </Text>
-
-        <TouchableOpacity
-          style={styles.midpointBtn}
-          activeOpacity={0.85}
-          onPress={() =>
-            mapRef.current?.moveTo(center.lat, center.lng)
-          }
-        >
-          <LinearGradient
-            colors={[colors.pink, colors.pinkDeep]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.midpointGradient}
-          >
-            <Text style={styles.midpointBtnText}>중간 지점 찾기</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-
-        <View style={styles.locationInfoCard}>
-          <View style={styles.locationRow}>
-            <Text style={styles.locationIcon}>📍</Text>
-            <View style={styles.locationDetail}>
-              <Text style={styles.locationName}>
-                예진 - 서울 마포구 {myArea}
-              </Text>
-              <Text style={styles.locationTime}>
-                {permissionGranted ? '방금 업데이트' : '위치 권한 필요'}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.locationRow}>
-            <Text style={styles.locationIcon}>📍</Text>
-            <View style={styles.locationDetail}>
-              <Text style={styles.locationName}>
-                지호 - 서울 마포구 {PARTNER_COORD.label}
-              </Text>
-              <Text style={styles.locationTime}>1분 전 업데이트</Text>
-            </View>
-          </View>
-        </View>
-      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgApp },
+  refreshBtn: { padding: 4 },
   mapArea: { flex: 1, position: 'relative', overflow: 'hidden' },
 
   mapFallback: {
@@ -306,74 +267,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 12,
     elevation: 6,
-  },
-
-  bottomSheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    paddingBottom: 32,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: colors.line,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  distanceText: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: colors.ink,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  distanceHeart: { color: colors.heartRed },
-  midpointBtn: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 20,
-  },
-  midpointGradient: {
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderRadius: 16,
-  },
-  midpointBtnText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  locationInfoCard: {
-    backgroundColor: colors.bgSoft,
-    borderRadius: 16,
-    padding: 16,
-  },
-  locationRow: { flexDirection: 'row', alignItems: 'center' },
-  locationIcon: { fontSize: 18, marginRight: 12 },
-  locationDetail: { flex: 1 },
-  locationName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.ink2,
-  },
-  locationTime: {
-    fontSize: 12,
-    color: colors.inkMute,
-    marginTop: 2,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: colors.line2,
-    marginVertical: 12,
   },
 });
 
