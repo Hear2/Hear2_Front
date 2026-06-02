@@ -82,8 +82,23 @@ export default {
   media: {
     presignedUrl: `${BASE_URL}/api/v1/media/presigned-url`,
   },
+  // 공유 캘린더 (커플 캘린더). ⚠️ ApiResponse<T> 래핑 → getUnwrapped/postUnwrapped 등 사용.
+  //  POST   /api/v1/calendar/events            일정 생성
+  //  GET    /api/v1/calendar/month?year=&month= 월별(일정+추억 마커)
+  //  GET    /api/v1/calendar/dates/{date}       날짜 상세
+  //  PATCH  /api/v1/calendar/events/{id}        수정
+  //  DELETE /api/v1/calendar/events/{id}        삭제
+  //  GET    /api/v1/calendar/upcoming?limit=    다가오는 일정
   calendar: {
-    events: `${BASE_URL}/calendar/events`,
+    events: `${BASE_URL}/api/v1/calendar/events`,
+    event: (id) => `${BASE_URL}/api/v1/calendar/events/${id}`,
+    month: (year, month) =>
+      `${BASE_URL}/api/v1/calendar/month?year=${year}&month=${month}`,
+    dateDetail: (date) => `${BASE_URL}/api/v1/calendar/dates/${date}`,
+    upcoming: (limit) =>
+      `${BASE_URL}/api/v1/calendar/upcoming${limit ? `?limit=${limit}` : ''}`,
+    placesSearch: (query, size) =>
+      `${BASE_URL}/api/v1/calendar/places/search?query=${encodeURIComponent(query)}${size ? `&size=${size}` : ''}`,
   },
   couple: {
     connect: `${BASE_URL}/couple/connect`,

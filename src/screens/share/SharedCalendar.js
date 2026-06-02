@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -110,7 +111,7 @@ const parseMonthDay = (str) => {
 
 export default function SharedCalendar({ navigation, route }) {
   const { memories } = useMemories();
-  const { events } = useEvents();
+  const { events, loadMonth } = useEvents();
   const { anniversaries } = useCouple();
   const today = useMemo(() => new Date(), []);
 
@@ -146,6 +147,18 @@ export default function SharedCalendar({ navigation, route }) {
     navigation?.setParams?.({ jumpTo: undefined });
   }, [jumpTo, navigation]);
 
+  // 보이는 달이 바뀔 때마다 BE에서 해당 월 일정 로드.
+  useEffect(() => {
+    loadMonth(view.y, view.m + 1);
+  }, [view.y, view.m, loadMonth]);
+
+  // 화면 복귀(일정 추가/수정 후)에도 현재 달을 다시 로드.
+  useFocusEffect(
+    useCallback(() => {
+      loadMonth(view.y, view.m + 1);
+    }, [view.y, view.m, loadMonth]),
+  );
+
   const [gridWidth, setGridWidth] = useState(0);
   const cellWidth = gridWidth > 0 ? Math.floor(gridWidth / 7) : 0;
   const cellHeight = cellWidth > 0 ? cellWidth * 1.75 : 0;
@@ -156,7 +169,8 @@ export default function SharedCalendar({ navigation, route }) {
   const isCurrentMonth =
     view.y === today.getFullYear() && view.m === today.getMonth();
   const todayDay = isCurrentMonth ? today.getDate() : -1;
-  const isAprilDemo = view.y === 2026 && view.m === 3;
+  // 실제 BE 연동 후 데모 데이터(2026년 4월 하드코딩) 비활성화.
+  const isAprilDemo = false;
 
   const memoriesByDay = useMemo(() => {
     const map = {};

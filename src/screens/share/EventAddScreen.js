@@ -8,6 +8,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -112,8 +113,10 @@ export default function EventAddScreen({ navigation, route }) {
     tags.length > 0 ? tags.map((t) => `#${t}`).join(' ') : '없음';
 
   const goBack = () => navigation?.goBack?.();
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (saving) return;
     const trimmedTitle = title.trim() || '새 일정';
     const payload = {
       title: trimmedTitle,
@@ -131,12 +134,19 @@ export default function EventAddScreen({ navigation, route }) {
       tags,
       memo: memo.trim(),
     };
-    if (isEditing) {
-      updateEvent(editingId, payload);
-    } else {
-      addEvent({ ...payload, createdAt: Date.now() });
+    setSaving(true);
+    try {
+      if (isEditing) {
+        await updateEvent(editingId, payload);
+      } else {
+        await addEvent({ ...payload, createdAt: Date.now() });
+      }
+      goBack();
+    } catch (e) {
+      Alert.alert('저장 실패', e?.message || '잠시 후 다시 시도해 주세요');
+    } finally {
+      setSaving(false);
     }
-    goBack();
   };
 
   return (
