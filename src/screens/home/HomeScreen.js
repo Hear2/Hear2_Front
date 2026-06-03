@@ -16,7 +16,7 @@ import DdayCard from './DdayCard';
 import { useMemories } from '../../contexts/MemoryContext';
 
 const quickActions = [
-  { emoji: '📷', label: '3초 기록',   bg: colors.pinkTint,     route: 'RecordScreen' },
+  { emoji: '📷', label: '추억 앨범',  bg: colors.pinkTint,     route: '앨범' },
   { emoji: '🤖', label: 'AI 리포트',  bg: colors.blueTint,     route: 'ReportView' },
   { emoji: '💌', label: '타임캡슐',   bg: colors.yellowTint,   route: 'TimeCapsuleScreen' },
   { emoji: '❓', label: '데일리 Q&A', bg: colors.greenTint,    route: 'DailyQAScreen' },
