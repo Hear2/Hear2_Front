@@ -113,23 +113,28 @@ const AlbumScreen = ({ navigation }) => {
     );
   };
 
-  const filteredMemories = useMemo(() => {
-    if (activeFilter === '전체') return memories;
-    return memories.filter((m) => m.tag === `#${activeFilter}`);
-  }, [activeFilter, memories]);
+  // 태그 분류는 반드시 사진별 태그(m.tags = photos[].aiTags 합집합) 기준.
+  // 게시글 레벨 단일 m.tag로 비교하면 여러 장 업로드에서 분류가 부정확해진다.
+  const matchesFilter = useCallback(
+    (m) =>
+      activeFilter === '전체' ||
+      (Array.isArray(m.tags) && m.tags.includes(activeFilter)),
+    [activeFilter],
+  );
+
+  const filteredMemories = useMemo(
+    () => memories.filter(matchesFilter),
+    [memories, matchesFilter],
+  );
 
   const filteredMoodGroups = useMemo(() => {
     return MOOD_GROUP_DEFS
       .map((g) => {
-        const items = memories.filter(
-          (m) =>
-            m.mood === g.id &&
-            (activeFilter === '전체' || m.tag === `#${activeFilter}`),
-        );
+        const items = memories.filter((m) => m.mood === g.id && matchesFilter(m));
         return { ...g, items, count: items.length };
       })
       .filter((g) => g.items.length > 0);
-  }, [activeFilter, memories]);
+  }, [memories, matchesFilter]);
 
   return (
     <View style={styles.container}>
@@ -336,6 +341,12 @@ const FeedGrid = ({ items, onPick, selectionMode, selectedIds, token }) => {
         <View style={styles.feedTagPill}>
           <Text style={styles.feedTagText}>{m.tag}</Text>
         </View>
+        {/* 여러 장이면 대표사진 오른쪽 위에 묶음 배지 표시(선택 모드일 땐 체크 원과 겹치므로 숨김) */}
+        {!selectionMode && m.photoCount > 1 && (
+          <View style={styles.multiBadge}>
+            <Text style={styles.multiBadgeText}>⧉ {m.photoCount}</Text>
+          </View>
+        )}
         <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.45)']}
           style={styles.feedFade}
@@ -406,6 +417,11 @@ const CategoryGrid = ({ groups, onPick, selectionMode, selectedIds, token }) => 
                 <View style={[styles.moodCardTag, { borderColor: g.color }]}>
                   <Text style={[styles.moodCardTagText, { color: g.color }]}>{m.tag}</Text>
                 </View>
+                {!selectionMode && m.photoCount > 1 && (
+                  <View style={styles.multiBadge}>
+                    <Text style={styles.multiBadgeText}>⧉ {m.photoCount}</Text>
+                  </View>
+                )}
                 {selectionMode && (
                   <View
                     style={[styles.selectCircle, selected && styles.selectCircleOn]}
@@ -610,6 +626,24 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: colors.pink,
+  },
+  // 여러 장 묶음 배지(우상단)
+  multiBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  multiBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
   },
   feedEmojiWrap: {
     flex: 1,

@@ -10,6 +10,7 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -29,6 +30,17 @@ const TAG_COLOR_CYCLE = [
   '#7ED7A0',
   colors.blue,
 ];
+
+// 백엔드 제한: 사진 1장당 AI 태그는 2~5개, 최대 5개까지만 저장.
+const MAX_TAGS_PER_PHOTO = 5;
+// 히어로 캐러셀 한 장 너비/높이.
+const HERO_W = Dimensions.get('window').width;
+const HERO_HEIGHT = 360;
+// PENDING 사진을 위한 자동 재조회 상한(4초 × 15회 ≈ 60초).
+const MAX_AI_POLLS = 15;
+
+// 앞의 '#' 제거 정규화.
+const stripHash = (t) => (typeof t === 'string' ? t.replace(/^#/, '').trim() : '');
 
 // 댓글 기능은 BE 미구현 — 디자인 유지용 더미 (보이지 않게 빈 배열로 전환)
 const COMMENTS = [];
@@ -64,6 +76,7 @@ function relativeFromNow(iso) {
 export default function PhotoDetailScreen({ navigation, route }) {
   const [draft, setDraft] = useState('');
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [heroIndex, setHeroIndex] = useState(0);
   const insets = useSafeAreaInsets();
   const passedMemory = route?.params?.memory || null;
   // PhotoUpload는 N장 업로드 시 backendIds(복수) 배열로 저장, AlbumScreen이 BE refresh로 가져온 건 backendId(단수).
@@ -74,7 +87,7 @@ export default function PhotoDetailScreen({ navigation, route }) {
     passedMemory?.id;
 
   const { refresh: refreshAlbum } = useMemories();
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
 
   // BE detail (있으면 사용, 없으면 passedMemory 그대로 표시)
   const [detail, setDetail] = useState(null);
@@ -101,13 +114,34 @@ export default function PhotoDetailScreen({ navigation, route }) {
   // 표시용 통합 모델: BE detail 우선, 없으면 navigation params
   const view = useMemo(() => {
     if (detail) {
-      const aiTagSlugs = (detail.aiTags || []).map((t) => t.replace(/^#/, ''));
-      const userTagSlugs = (detail.userTags || []).map((t) => t.replace(/^#/, ''));
+      // 사진별 모델: url / 정규화 태그(장당 최대 5개) / 분석 상태.
+      const rawPhotos = Array.isArray(detail.photos) ? detail.photos : [];
+      const photos = rawPhotos.map((p, i) => {
+        const aiTags = (Array.isArray(p?.aiTags) ? p.aiTags : [])
+          .slice(0, MAX_TAGS_PER_PHOTO)
+          .map(stripHash)
+          .filter(Boolean);
+        // 상태가 내려오면 그대로 신뢰. 없으면 태그 유무로 보정(태그 있으면 완료).
+        const status = p?.aiAnalysisStatus || (aiTags.length > 0 ? 'COMPLETED' : 'PENDING');
+        return { key: p?.id ?? p?.url ?? `p-${i}`, url: p?.url || null, aiTags, status };
+      });
+
+      // 분류/표시 태그는 반드시 photos[].aiTags 합집합 기준.
+      // photos가 비었을 때만 게시글 레벨 aiTags(호환용/대표사진 태그)로 fallback.
+      const photoAiSlugs = photos.flatMap((p) => p.aiTags);
+      const aiTagSlugs =
+        photoAiSlugs.length > 0
+          ? [...new Set(photoAiSlugs)]
+          : (detail.aiTags || []).map(stripHash).filter(Boolean);
+      const userTagSlugs = (detail.userTags || []).map(stripHash).filter(Boolean);
       const tags = [...new Set([...userTagSlugs, ...aiTagSlugs])];
+
       return {
         title: (detail.memo || '').split('\n')[0] || '제목 없는 추억',
         memo: (detail.memo || '').split('\n').slice(1).join('\n') || detail.memo || '',
-        photoUrl: detail.photoUrl,
+        // 대표사진: photoUrl 우선, 없으면 photos[0].url.
+        photoUrl: detail.photoUrl || rawPhotos[0]?.url || null,
+        photos,
         takenAt: detail.metadata?.takenAt || detail.createdAt,
         memoryDate: detail.memoryDate,
         // 위치 표시 우선순위: locationName > placeName > addressName.
@@ -125,15 +159,55 @@ export default function PhotoDetailScreen({ navigation, route }) {
       title: passedMemory?.title || (passedMemory?.tag || '추억'),
       memo: passedMemory?.memo || '',
       photoUrl: passedMemory?.photoUri || null,
+      photos: [],
       takenAt: null,
       memoryDate: null,
       place: passedMemory?.place || '',
-      tags: passedMemory?.tag
-        ? [passedMemory.tag.replace(/^#/, '')]
-        : [],
+      // 앨범에서 넘어온 카드의 분류 태그(photos[].aiTags 합집합)를 그대로 사용.
+      tags:
+        Array.isArray(passedMemory?.tags) && passedMemory.tags.length > 0
+          ? passedMemory.tags
+          : passedMemory?.tag
+            ? [stripHash(passedMemory.tag)]
+            : [],
       aiTags: [],
     };
   }, [detail, passedMemory]);
+
+  // PENDING 사진이 있으면 분석 완료까지 주기적으로 detail을 다시 불러온다(상한 있음).
+  const hasPending = view.photos.some((p) => p.status === 'PENDING');
+  const pollCountRef = React.useRef(0);
+  useEffect(() => {
+    // detail이 갱신될 때마다 카운터 초기화 판단: 더 이상 PENDING 없으면 멈춤.
+    if (!hasPending || !backendId) return undefined;
+    if (pollCountRef.current >= MAX_AI_POLLS) return undefined;
+    const t = setTimeout(() => {
+      pollCountRef.current += 1;
+      loadDetail();
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [hasPending, backendId, loadDetail, detail]);
+
+  // 히어로 캐러셀에 쓸 사진 목록: photos[] 우선, 없으면 대표사진 1장.
+  const heroPhotos =
+    view.photos.length > 0
+      ? view.photos
+      : view.photoUrl
+        ? [{ key: 'cover', url: view.photoUrl }]
+        : [];
+  // 사진 수가 바뀌면(상세 로드/폴링) 현재 페이지를 첫 장으로 리셋.
+  useEffect(() => {
+    setHeroIndex(0);
+  }, [heroPhotos.length]);
+
+  // 업로더 표시: 내 업로드면 내 닉네임+프로필 이미지로, 아니면 파트너로.
+  // (BE가 uploaderId 숫자만 주고 임의 userId→프로필/파트너 조회 API가 없어, 파트너 이름·사진은 아직 못 가져옴.)
+  const isMyUpload =
+    detail?.uploaderId != null &&
+    user?.userId != null &&
+    detail.uploaderId === user.userId;
+  const uploaderName = isMyUpload ? user?.nickname || '나' : '파트너';
+  const uploaderAvatarUrl = isMyUpload ? user?.profileImage : null;
 
   const goBack = () => navigation?.goBack?.();
 
@@ -246,17 +320,48 @@ export default function PhotoDetailScreen({ navigation, route }) {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 96 + Math.max(insets.bottom, 0) }}
       >
-        {/* Hero photo */}
-        {view.photoUrl ? (
+        {/* Hero photo — 여러 장이면 옆으로 넘기는 캐러셀(인스타 피드처럼) */}
+        {heroPhotos.length > 0 ? (
           <View style={styles.hero}>
-            <Image
-              source={buildPhotoSource(view.photoUrl, accessToken)}
-              style={styles.heroImage}
-            />
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              scrollEnabled={heroPhotos.length > 1}
+              onMomentumScrollEnd={(e) => {
+                const i = Math.round(e.nativeEvent.contentOffset.x / HERO_W);
+                setHeroIndex(Math.max(0, Math.min(i, heroPhotos.length - 1)));
+              }}
+            >
+              {heroPhotos.map((p) => (
+                <Image
+                  key={p.key}
+                  source={buildPhotoSource(p.url, accessToken)}
+                  style={styles.heroSlide}
+                />
+              ))}
+            </ScrollView>
             {loading && (
               <View style={styles.heroLoader}>
                 <ActivityIndicator color="#fff" />
               </View>
+            )}
+            {heroPhotos.length > 1 && (
+              <>
+                <View style={styles.heroCounter}>
+                  <Text style={styles.heroCounterText}>
+                    {heroIndex + 1} / {heroPhotos.length}
+                  </Text>
+                </View>
+                <View style={styles.heroDots}>
+                  {heroPhotos.map((p, i) => (
+                    <View
+                      key={p.key}
+                      style={[styles.heroDot, i === heroIndex && styles.heroDotActive]}
+                    />
+                  ))}
+                </View>
+              </>
             )}
           </View>
         ) : (
@@ -294,12 +399,17 @@ export default function PhotoDetailScreen({ navigation, route }) {
           {/* Uploader */}
           <View style={styles.uploader}>
             <View style={styles.uploaderAvatar}>
-              <Text style={styles.uploaderAvatarText}>👤</Text>
+              {uploaderAvatarUrl ? (
+                <Image
+                  source={buildPhotoSource(uploaderAvatarUrl, accessToken)}
+                  style={styles.uploaderAvatarImg}
+                />
+              ) : (
+                <Text style={styles.uploaderAvatarText}>👤</Text>
+              )}
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.uploaderName}>
-                {detail?.uploaderId ? `사용자 ${detail.uploaderId}` : '내가 올림'}
-              </Text>
+              <Text style={styles.uploaderName}>{uploaderName}</Text>
               <Text style={styles.uploaderSub}>
                 {view.takenAt
                   ? `${relativeFromNow(view.takenAt)} · 두 분의 추억함에 저장됨`
@@ -336,12 +446,51 @@ export default function PhotoDetailScreen({ navigation, route }) {
             </View>
           ) : null}
 
-          {/* AI 발견 (AI 태그가 있을 때만) */}
-          {view.aiTags.length > 0 && (
+          {/* AI 발견 — 사진별 분석상태(PENDING/COMPLETED/FAILED)에 따라 로딩/실패/태그 표시 */}
+          {view.photos.length > 0 ? (
+            <View style={styles.insightsCard}>
+              <Text style={styles.insightsHeader}>✨ AI가 발견한 것</Text>
+              {view.photos.map((p, idx) => (
+                <View
+                  key={p.key}
+                  style={[styles.photoInsight, idx > 0 && styles.photoInsightDivider]}
+                >
+                  {view.photos.length > 1 && (
+                    <Text style={styles.photoInsightLabel}>사진 {idx + 1}</Text>
+                  )}
+                  {p.status === 'PENDING' ? (
+                    <View style={styles.aiStatusRow}>
+                      <ActivityIndicator size="small" color={colors.pink} />
+                      <Text style={styles.aiStatusText}>AI가 사진을 분석 중이에요…</Text>
+                    </View>
+                  ) : p.status === 'FAILED' ? (
+                    <View style={styles.aiStatusRow}>
+                      <Text style={styles.aiStatusFailIcon}>⚠️</Text>
+                      <Text style={styles.aiStatusText}>
+                        AI 분석에 실패했어요. 태그를 직접 추가해 주세요.
+                      </Text>
+                    </View>
+                  ) : p.aiTags.length > 0 ? (
+                    <View style={styles.insightsGrid}>
+                      {p.aiTags.map((tag) => (
+                        <View key={tag} style={styles.insightItem}>
+                          <Text style={styles.insightLabel}>🏷️ 태그</Text>
+                          <Text style={styles.insightValue}>#{tag}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={styles.aiStatusText}>분석된 태그가 없어요.</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          ) : view.aiTags.length > 0 ? (
+            // photos[] 없는 구버전 응답 호환: 게시글 레벨 aiTags(대표사진 태그)로 표시.
             <View style={styles.insightsCard}>
               <Text style={styles.insightsHeader}>✨ AI가 발견한 것</Text>
               <View style={styles.insightsGrid}>
-                {view.aiTags.slice(0, 4).map((tag) => (
+                {view.aiTags.slice(0, MAX_TAGS_PER_PHOTO).map((tag) => (
                   <View key={tag} style={styles.insightItem}>
                     <Text style={styles.insightLabel}>🏷️ 태그</Text>
                     <Text style={styles.insightValue}>#{tag}</Text>
@@ -349,7 +498,7 @@ export default function PhotoDetailScreen({ navigation, route }) {
                 ))}
               </View>
             </View>
-          )}
+          ) : null}
 
           {/* Comments (BE 미구현 — 댓글 0개일 때 카드 숨김) */}
           {COMMENTS.length > 0 && (
@@ -516,6 +665,21 @@ const styles = StyleSheet.create({
     height: '100%',
     resizeMode: 'cover',
   },
+  heroSlide: {
+    width: HERO_W,
+    height: HERO_HEIGHT,
+    resizeMode: 'cover',
+  },
+  heroCounter: {
+    position: 'absolute',
+    bottom: 26,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  heroCounterText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   heroLoader: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
@@ -534,8 +698,11 @@ const styles = StyleSheet.create({
   },
   heroDots: {
     position: 'absolute',
-    bottom: 12,
+    bottom: 26,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
+    justifyContent: 'center',
     gap: 6,
   },
   heroDot: {
@@ -606,6 +773,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   uploaderAvatarText: { fontSize: 12, fontWeight: '700', color: colors.pinkDeep },
+  uploaderAvatarImg: { width: 32, height: 32, borderRadius: 16 },
   uploaderName: { fontSize: 12, fontWeight: '700', color: colors.ink },
   uploaderSub: { fontSize: 10, color: '#888', marginTop: 1 },
   sharedPill: {
@@ -664,6 +832,27 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   insightsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  photoInsight: { paddingTop: 4 },
+  photoInsightDivider: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.line2,
+  },
+  photoInsightLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.inkMute,
+    marginBottom: 6,
+  },
+  aiStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  aiStatusText: { flex: 1, fontSize: 12, color: '#888', lineHeight: 18 },
+  aiStatusFailIcon: { fontSize: 14 },
   insightItem: {
     width: '48%',
     padding: 10,

@@ -449,7 +449,7 @@ export default function PhotoUpload({ navigation }) {
     [selectedItems],
   );
 
-  // 첫 사진 draft 응답을 받아서 UI(날짜·위치·태그 칩) 자동 채우기
+  // 첫 사진 미리보기 draft 응답으로 UI(날짜·위치·태그 칩) 자동 채우기
   const applyAutoFillFromDraft = useCallback((draft) => {
     if (!draft) return;
     const d = parseAiTime(draft.aiTime);
@@ -551,6 +551,8 @@ export default function PhotoUpload({ navigation }) {
           fileUri: uploadUri,
           contentType: uploadMime,
         });
+        // 미리보기/자동채움용으로 사진 1장당 메모리를 만들어 AI 태그·위치를 받아둔다.
+        // 저장 시엔 이 draft들의 objectKey를 모아 묶음 메모리 1개를 새로 만들고, 이 draft들은 삭제한다.
         const created = await createQuickMemory({
           objectKey: presigned.objectKey,
           lat: exifMeta.lat,
@@ -558,20 +560,35 @@ export default function PhotoUpload({ navigation }) {
           // EXIF에 촬영시각이 없으면 현재 시각으로 — capturedAt이 빠지면 BE가 createdAt 사용
           capturedAt: exifMeta.capturedAt || new Date().toISOString(),
           userTags: [],
-          // 사용자가 이미 위치명을 직접 골랐으면(여러 장 중 뒤늦게 추가한 사진 등) 그 값을 전달.
-          // 안 골랐으면 undefined → BE가 좌표로 자동 계산. (placeRef로 최신값 참조해 stale 방지)
+          // 사용자가 이미 위치명을 직접 골랐으면 그 값을 전달. 안 골랐으면 undefined → BE 자동 계산.
           locationName: placeEditedRef.current
             ? placeRef.current.trim() || undefined
             : undefined,
+          // 동기 AI 분석이 30초 근처로 느릴 때 대비해 여유 부여.
+          timeoutMs: 60000,
         });
+        // draft = 생성 응답(자동채움용 aiTags/aiPlace/aiTime 포함) + 묶음 생성에 필요한 EXIF/미리보기 uri.
+        // 저장 시 미리보기 메모리를 삭제하면 그 objectKey의 R2 객체도 함께 지워지므로(BE deleteMemory),
+        // 묶음 메모리엔 이 objectKey를 재사용하지 않고 jpeg를 새 키로 다시 올린다. → 재업로드용 jpeg 정보 보관.
+        const draft = {
+          ...created,
+          objectKey: presigned.objectKey,
+          uri: photo.uri,
+          jpegUri: uploadUri,
+          jpegMime: uploadMime,
+          jpegName: uploadName,
+          lat: exifMeta.lat,
+          lng: exifMeta.lng,
+          capturedAt: exifMeta.capturedAt || new Date().toISOString(),
+        };
         // drafts 상태 + ref 동기화
         setDrafts((prev) => {
-          const next = { ...prev, [photo.id]: created };
+          const next = { ...prev, [photo.id]: draft };
           draftsRef.current = next;
           return next;
         });
-        if (isFirst) applyAutoFillFromDraft(created);
-        return created;
+        if (isFirst) applyAutoFillFromDraft(draft);
+        return draft;
       } catch (e) {
         // 개별 draft 실패는 사용자에게 별도 안내 안 함 (저장 시점에 재시도됨)
         return null;
@@ -687,38 +704,78 @@ export default function PhotoUpload({ navigation }) {
       const noteParts = [title.trim(), memo.trim()].filter(Boolean);
       const note = noteParts.length > 0 ? noteParts.join('\n') : null;
 
-      // 각 사진: pick 직후 만들어둔 draft가 있으면 PATCH로 마무리. 없으면 (네트워크 실패 등) 새로 create.
-      const results = await Promise.all(
+      // 모든 사진을 R2에 업로드해 objectKey 확보(고를 때 만들어둔 draft 재사용, 없으면 지금 업로드).
+      const uploaded = await Promise.all(
         photos.map(async (photo) => {
           let draft = drafts[photo.id];
           if (!draft) {
             draft = await createDraftForPhoto(photo, false);
-            if (!draft) throw new Error('사진 업로드 실패');
           }
-          try {
-            const patched = await updateQuickMemory(draft.id, {
-              note,
-              userTags: activeTagSlugs,
-              // 화면에 표시되어 사용자가 수용/수정한 위치명을 최종 저장.
-              // 비어있으면 undefined → BE의 자동 장소명을 유지(덮어쓰지 않음).
-              locationName: place.trim() || undefined,
-            });
-            return patched ?? draft;
-          } catch (_) {
-            // PATCH 실패해도 메모리는 이미 생성됐으므로 draft 자체는 반환
-            return draft;
-          }
+          if (!draft?.objectKey) throw new Error('사진 업로드 실패');
+          return draft;
         }),
+      );
+
+      // 미리보기 메모리의 objectKey를 묶음 메모리가 그대로 참조하면, 저장 후 미리보기 메모리를
+      // 삭제할 때 BE가 그 R2 객체까지 지워 묶음 메모리 사진이 깨진다(404). 그래서 묶음 메모리엔
+      // jpeg를 fresh 키로 다시 올려서 쓴다(미리보기와 R2 객체를 분리).
+      const objectKeys = await Promise.all(
+        uploaded.map(async (d) => {
+          const presigned = await createPresignedUrl({
+            mediaType: 'photo',
+            contentType: d.jpegMime || 'image/jpeg',
+            originalFileName: d.jpegName || 'memory.jpg',
+            purpose: 'memory',
+          });
+          await uploadToPresignedUrl({
+            uploadUrl: presigned.uploadUrl,
+            method: presigned.method,
+            headers: presigned.headers,
+            fileUri: d.jpegUri || d.uri,
+            contentType: d.jpegMime || 'image/jpeg',
+          });
+          return presigned.objectKey;
+        }),
+      );
+
+      // 첫 사진 = 커버. 좌표/촬영시각은 커버 기준. 여러 장을 한 게시물(photos[])로 묶어 메모리 1개 생성.
+      const cover = uploaded[0];
+      const created = await createQuickMemory({
+        objectKeys,
+        lat: cover.lat,
+        lng: cover.lng,
+        capturedAt: cover.capturedAt || new Date().toISOString(),
+        userTags: activeTagSlugs,
+        // 표시·수정된 위치명 최종 저장. 비어있으면 undefined → BE가 좌표로 자동 계산.
+        locationName: place.trim() || undefined,
+        // BE가 사진별 AI 분석을 동기로 돌아 장수만큼 오래 걸린다 → 장수 비례 타임아웃.
+        timeoutMs: Math.min(180000, 60000 + objectKeys.length * 30000),
+      });
+
+      // 노트(제목+메모)는 quick create 본문에 없으므로 생성 후 PATCH로 채운다.
+      if (note && created?.id != null) {
+        try {
+          await updateQuickMemory(created.id, { note });
+        } catch (_) {
+          // 노트 저장 실패해도 사진/메모리는 이미 저장됨 — 다음 새로고침에서 보정.
+        }
+      }
+
+      // 미리보기용으로 만든 개별 draft 메모리는 삭제(앨범엔 묶음 메모리 1개만 남긴다).
+      const draftIds = uploaded.map((d) => d.id).filter((id) => id != null);
+      await Promise.allSettled(
+        draftIds.map((id) => apiDeleteMemory(id).catch(() => {})),
       );
 
       savedRef.current = true;
 
       // 로컬 컨텍스트에도 즉시 반영 (앨범 화면이 BE refresh되기 전까지 임시 표시)
-      const first = photos[0];
       addMemory({
         emoji: '📸',
-        photoUri: first.uri,
+        photoUri: cover.uri,
+        photoCount: objectKeys.length,
         tag: activeTagSlugs[0] ? `#${activeTagSlugs[0]}` : '#기록',
+        tags: activeTagSlugs,
         place: place.trim() || '미지정',
         date: formatDate(pickedDate),
         tint: '#FFE4EE',
@@ -727,7 +784,7 @@ export default function PhotoUpload({ navigation }) {
         memo: memo.trim(),
         shared: shareWithPartner,
         createdAt: Date.now(),
-        backendIds: results.map((r) => r.id),
+        backendId: created?.id,
       });
 
       // BE에서 최신 앨범 동기화 (best-effort)
@@ -822,7 +879,7 @@ export default function PhotoUpload({ navigation }) {
     loadDeviceGallery();
   }, [loadDeviceGallery]);
 
-  // 저장하지 않은 draft 정리 (취소/뒤로/unmount 시 orphan 방지)
+  // 저장하지 않은 미리보기 draft 메모리 정리 (취소/뒤로/unmount 시 orphan 방지).
   const cleanupUnsavedDrafts = useCallback(() => {
     if (savedRef.current) return; // 저장 완료 → 정리 안 함
     const ids = Object.values(draftsRef.current).map((d) => d?.id).filter(Boolean);

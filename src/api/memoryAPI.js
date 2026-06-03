@@ -21,7 +21,10 @@ import {
 //
 // MemoryResponse (앨범/상세):
 //   { id, coupleId, uploaderId, memo, memoryDate, photoUrl, photoAvailable,
-//     aiAnalysisStatus, metadata, tags, aiTags, userTags, createdAt, updatedAt }
+//     aiAnalysisStatus, metadata, tags, aiTags, userTags, createdAt, updatedAt,
+//     photos: [{ url, aiTags: ['#봄', ...] (장당 2~5개·최대 5), aiAnalysisStatus: 'PENDING'|'COMPLETED'|'FAILED' }] }
+//   ※ 태그 분류는 반드시 photos[].aiTags 기준. 게시글 레벨 aiTags는 호환용/대표사진 태그로만.
+//   ※ 대표사진은 photoUrl, 없으면 photos[0].url. photos.length > 1이면 '여러 장'.
 
 // ───── 미디어 업로드 ─────
 
@@ -90,24 +93,35 @@ export function analyzeImageTags({ imageUrl } = {}) {
 // userTags는 ["우리둘이", "특별한날"] 처럼 # 제외 문자열 배열
 // locationName: 사용자가 직접 지정한 위치명. 보내면 BE가 카카오 자동 장소명보다 우선 저장.
 //   생략(undefined)하면 BE가 lat/lng 기준으로 자동 장소명을 계산한다. (JSON.stringify가 undefined 키를 누락)
+// 여러 장은 objectKeys 배열로 보내면 BE가 한 게시물(photos[])로 묶어 메모리 1개를 만든다.
+// 첫 번째 objectKey가 커버 사진. 단일 장은 objectKey(단수)도 호환된다.
+// BE가 사진별 AI 비전 분석을 동기로 돌기 때문에, 여러 장(objectKeys) 묶음 생성은
+// 기본 30초 타임아웃을 넘길 수 있다. 호출부에서 timeoutMs로 장수에 맞게 늘려 전달한다.
 export function createQuickMemory({
   objectKey,
+  objectKeys,
   imageUrl, // 호환용
   lat,
   lng,
   capturedAt,
   userTags,
   locationName,
+  timeoutMs,
 } = {}) {
-  return postUnwrapped(endpoints.memory.quickCreate, {
-    objectKey,
-    imageUrl,
-    lat,
-    lng,
-    capturedAt,
-    userTags,
-    locationName,
-  });
+  return postUnwrapped(
+    endpoints.memory.quickCreate,
+    {
+      objectKey,
+      objectKeys,
+      imageUrl,
+      lat,
+      lng,
+      capturedAt,
+      userTags,
+      locationName,
+    },
+    timeoutMs ? { timeoutMs } : undefined,
+  );
 }
 
 // locationName만 보내면 위치명만 수정, 지도에서 좌표까지 다시 골랐으면 lat/lng도 함께 전달.
