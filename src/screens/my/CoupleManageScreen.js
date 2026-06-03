@@ -17,13 +17,8 @@ import SettingsShell from './SettingsShell';
 import Heart from '../../components/common/Heart';
 import { useCouple } from '../../contexts/CoupleContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { daysTogether, formatStartDate } from '../../utils/dday';
 
-// 화면 더미 기준 커플 두 사람. me는 로그인 닉네임으로 판별(없으면 지호로 폴백).
-const COUPLE = ['예진', '지호'];
-const NICK_THEME = {
-  예진: { color: colors.pinkDeep, bg: '#FFF5F8' },
-  지호: { color: colors.blue, bg: '#F5F8FF' },
-};
 // 한국어 주격 조사 이/가 (받침 있으면 '이').
 const subjParticle = (name) => {
   if (!name) return '가';
@@ -59,29 +54,27 @@ const sortByDate = (list) =>
 
 const CoupleManageScreen = ({ navigation }) => {
   const { anniversaries, nicknames, setNickname } = useCouple();
-  const { user } = useAuth();
+  const { user, coupleStartDate } = useAuth();
   const sorted = useMemo(() => sortByDate(anniversaries), [anniversaries]);
 
-  // 나(부르는 주체) 판별 — 로그인 닉네임이 커플 멤버면 그걸로, 아니면 지호로 폴백.
-  const me = COUPLE.includes(user?.nickname) ? user.nickname : '지호';
+  // 실데이터: 나 = 로그인 닉네임, 파트너 = '연인'(FE에 파트너 이름 소스 없음).
+  const myName = user?.nickname || '나';
+  const partnerName = '연인';
+  const dday = daysTogether(coupleStartDate);
 
-  // 애칭 카드: giver(부르는 사람)별로. 편집은 giver === me 인 카드(=내가 상대를 부르는 애칭)만 가능.
-  const nickCards = useMemo(
-    () =>
-      COUPLE.map((giver) => {
-        const target = COUPLE.find((n) => n !== giver);
-        const theme = NICK_THEME[giver] || { color: colors.pinkDeep, bg: '#FFF5F8' };
-        return {
-          giver,
-          target,
-          label: `${giver}${subjParticle(giver)} 부르는 ${target}`,
-          value: nicknames?.[giver] ?? '',
-          editable: giver === me,
-          ...theme,
-        };
-      }),
-    [nicknames, me],
-  );
+  // 애칭 카드: [나→연인](편집 가능) / [연인→나](잠금). 편집은 내가 상대를 부르는 것만.
+  const nickCards = useMemo(() => {
+    const PINK = { color: colors.pinkDeep, bg: '#FFF5F8' };
+    const BLUE = { color: colors.blue, bg: '#F5F8FF' };
+    return [
+      { giver: myName, target: partnerName, editable: true, ...PINK },
+      { giver: partnerName, target: myName, editable: false, ...BLUE },
+    ].map((c) => ({
+      ...c,
+      label: `${c.giver}${subjParticle(c.giver)} 부르는 ${c.target}`,
+      value: nicknames?.[c.giver] ?? '',
+    }));
+  }, [nicknames, myName]);
 
   // 애칭 편집 모달
   const [editGiver, setEditGiver] = useState(null);
@@ -127,17 +120,25 @@ const CoupleManageScreen = ({ navigation }) => {
 
       <View style={styles.coupleRow}>
         <View style={[styles.avatar, { backgroundColor: '#FFE4EE' }]}>
-          <Text style={[styles.avatarText, { color: colors.pinkDeep }]}>예</Text>
+          <Text style={[styles.avatarText, { color: colors.pinkDeep }]}>
+            {myName.charAt(0)}
+          </Text>
         </View>
         <View style={styles.heartWrap}>
           <Heart size={20} color="#FFFFFF" pulse />
         </View>
         <View style={[styles.avatar, { backgroundColor: colors.blueTint, marginLeft: -8 }]}>
-          <Text style={[styles.avatarText, { color: colors.blue }]}>지</Text>
+          <Text style={[styles.avatarText, { color: colors.blue }]}>
+            {partnerName.charAt(0)}
+          </Text>
         </View>
         <View style={styles.coupleInfo}>
-          <Text style={styles.coupleName}>예진 ♥ 지호</Text>
-          <Text style={styles.coupleSub}>2024.12.20 시작 · 485일째</Text>
+          <Text style={styles.coupleName}>{myName} ♥ {partnerName}</Text>
+          <Text style={styles.coupleSub}>
+            {dday != null
+              ? `${formatStartDate(coupleStartDate)} 시작 · ${dday}일째`
+              : '함께하는 중'}
+          </Text>
         </View>
       </View>
     </LinearGradient>
@@ -236,7 +237,7 @@ const CoupleManageScreen = ({ navigation }) => {
         >
           <Pressable style={styles.modalCard} onPress={() => {}}>
             <Text style={styles.modalTitle}>
-              {editGiver ? `${COUPLE.find((n) => n !== editGiver)} 애칭` : '애칭'}
+              {editGiver ? `${partnerName} 애칭` : '애칭'}
             </Text>
             <Text style={styles.modalSub}>상대를 부르는 애칭을 정해주세요</Text>
             <TextInput

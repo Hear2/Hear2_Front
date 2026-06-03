@@ -2,26 +2,8 @@ import React, { createContext, useCallback, useContext, useMemo, useState } from
 
 const CoupleContext = createContext(null);
 
-const SEED_ANNIVERSARIES = [
-  {
-    id: 'seed-1',
-    type: '사귄 날',
-    name: '사귄 날',
-    date: '2024-12-20',
-    icon: '💕',
-    color: '#FC2648',
-    auto: false,
-  },
-  {
-    id: 'seed-2',
-    type: '생일',
-    name: '예진 생일',
-    date: '2026-07-14',
-    icon: '🎂',
-    color: '#FFB05B',
-    auto: false,
-  },
-];
+// 더미 기념일 제거 — 실제 사용자가 직접 등록한 기념일만 표시.
+const SEED_ANNIVERSARIES = [];
 
 const N_BAEKIL_STEPS = [100, 200, 300, 500, 1000];
 const N_JUNYEON_STEPS = [1, 2, 3, 5, 10];
@@ -81,10 +63,8 @@ const expandSeed = (list) => {
 // 애칭: "부르는 사람(giver) 이름" 기준으로 저장 (보는 사람과 무관하게 같은 값).
 //  - nicknames['예진'] = 예진이 파트너(지호)를 부르는 애칭
 //  - nicknames['지호'] = 지호가 파트너(예진)를 부르는 애칭
-const SEED_NICKNAMES = {
-  예진: '자기야',
-  지호: '우리 예지니',
-};
+// 더미 애칭 제거 — 사용자가 직접 정한 애칭만 표시(키 = 부르는 사람 닉네임).
+const SEED_NICKNAMES = {};
 
 export const CoupleProvider = ({ children }) => {
   const [anniversaries, setAnniversaries] = useState(() =>

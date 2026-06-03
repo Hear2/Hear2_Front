@@ -20,8 +20,8 @@ import TagPicker from '../../components/common/TagPicker';
 import { useEvents } from '../../contexts/EventContext';
 
 const OWNERS = [
-  { id: 'me',      label: '예진 (여)', tint: 'rgba(255,138,76,0.55)',  accent: '#E07A2C' },
-  { id: 'partner', label: '지호 (남)', tint: 'rgba(108,165,255,0.55)', accent: colors.blue },
+  { id: 'me',      label: '나', tint: 'rgba(255,138,76,0.55)',  accent: '#E07A2C' },
+  { id: 'partner', label: '연인', tint: 'rgba(108,165,255,0.55)', accent: colors.blue },
   { id: 'couple',  label: '공동',     tint: 'rgba(255,138,178,0.55)', accent: colors.pinkDeep },
 ];
 

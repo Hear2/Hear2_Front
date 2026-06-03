@@ -167,7 +167,7 @@ const DailyQASubmittedScreen = ({ navigation, route }) => {
           </View>
 
           <Text style={styles.heroTitle}>답변이 도착했어요!</Text>
-          <Text style={styles.heroSubtitle}>지호에게 살짝 알림이 갔어요 💕</Text>
+          <Text style={styles.heroSubtitle}>연인에게 살짝 알림이 갔어요 💕</Text>
         </LinearGradient>
 
         {/* Streak earned */}
@@ -247,14 +247,14 @@ const DailyQASubmittedScreen = ({ navigation, route }) => {
             <Text style={[styles.progressLabel, { color: colors.heartRed }]}>
               내 답변
             </Text>
-            <Text style={styles.progressLabel}>지호 답변</Text>
+            <Text style={styles.progressLabel}>연인 답변</Text>
             <Text style={styles.progressLabel}>둘 다 공개</Text>
           </View>
         </View>
 
         {/* Nudge action */}
         <TouchableOpacity style={styles.nudgeBtn} activeOpacity={0.85}>
-          <Text style={styles.nudgeText}>💌 지호에게 살짝 재촉하기</Text>
+          <Text style={styles.nudgeText}>💌 연인에게 살짝 재촉하기</Text>
         </TouchableOpacity>
 
         {/* Primary CTA */}

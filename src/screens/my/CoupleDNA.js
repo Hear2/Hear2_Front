@@ -101,9 +101,8 @@ export default function CoupleDNA({ navigation, route }) {
           throw new Error('coupleId를 찾을 수 없어요.');
         }
         const data = await getCoupleDna({ coupleId: cid, anchorDate, signal });
-        // BE 응답이 와도 분석 데이터가 너무 빈약하면 mock으로 대체.
-        // 7일치 미만이면 metric/조사/문구가 어색하게 노출되므로 보여줄 만큼 쌓이기 전까지는 mock.
-        setDna(isSparseDna(data) ? MOCK_DNA : data);
+        // 분석 데이터가 너무 빈약하면 가짜(mock) 대신 '준비 중' 빈 상태로 둔다(dna=null).
+        setDna(isSparseDna(data) ? null : data);
       } catch (err) {
         if (err?.code === 'ABORTED') return;
         setError(err?.message || 'DNA 분석을 불러오지 못했어요.');
@@ -148,6 +147,14 @@ export default function CoupleDNA({ navigation, route }) {
           <TouchableOpacity style={styles.retryBtn} onPress={() => fetchDna()}>
             <Text style={styles.retryText}>다시 시도</Text>
           </TouchableOpacity>
+        </View>
+      ) : !dna ? (
+        <View style={styles.center}>
+          <Text style={styles.errorEmoji}>🧬</Text>
+          <Text style={styles.errorTitle}>아직 분석할 데이터가 충분하지 않아요</Text>
+          <Text style={styles.errorMessage}>
+            대화와 추억이 쌓이면 우리만의 커플 DNA가 분석돼요.
+          </Text>
         </View>
       ) : (
         <DnaBody dna={dna} fadeAnim={fadeAnim} onShare={handleShare} />

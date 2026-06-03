@@ -52,8 +52,8 @@ const formatBirthday = (d) =>
 const SignupScreen = ({ navigation, route }) => {
   const email = route?.params?.email ?? null;
   const password = route?.params?.password ?? null;
-  const [nickname, setNickname] = useState('예진');
-  const [birthday, setBirthday] = useState(new Date(1998, 4, 12));
+  const [nickname, setNickname] = useState('');
+  const [birthday, setBirthday] = useState(new Date(2000, 0, 1));
   const [openBirthday, setOpenBirthday] = useState(false);
   const [gender, setGender] = useState('여성');
   const [submitting, setSubmitting] = useState(false);

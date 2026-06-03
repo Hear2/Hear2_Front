@@ -3,17 +3,20 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
 import SettingsShell from './SettingsShell';
+import { useAuth } from '../../contexts/AuthContext';
 
-const FIELDS = [
-  { label: '이름', value: '예진' },
-  { label: '생년월일', value: '2000.07.14' },
-  { label: '성별', value: '여성' },
-  { label: '한 줄 소개', value: '벚꽃 좋아하는 사람 🌸' },
-  { label: '이메일', value: 'yejin@hear2.app', locked: true },
-  { label: '전화번호', value: '010-****-1234', locked: true },
-];
-
-const ProfileEditScreen = ({ navigation }) => (
+const ProfileEditScreen = ({ navigation }) => {
+  const { user } = useAuth();
+  const nickname = user?.nickname || '나';
+  const FIELDS = [
+    { label: '이름', value: nickname },
+    { label: '생년월일', value: user?.birthday || '미설정' },
+    { label: '성별', value: user?.gender || '미설정' },
+    { label: '한 줄 소개', value: user?.intro || '미설정' },
+    { label: '이메일', value: user?.email || '', locked: true },
+    { label: '전화번호', value: user?.phone || '미설정', locked: true },
+  ];
+  return (
   <SettingsShell
     navigation={navigation}
     title="프로필 편집"
@@ -29,7 +32,7 @@ const ProfileEditScreen = ({ navigation }) => (
           end={{ x: 1, y: 1 }}
           style={styles.avatar}
         >
-          <Text style={styles.avatarText}>예</Text>
+          <Text style={styles.avatarText}>{nickname.charAt(0)}</Text>
         </LinearGradient>
         <TouchableOpacity style={styles.cameraBadge} activeOpacity={0.85}>
           <Text style={styles.cameraIcon}>📷</Text>
@@ -66,11 +69,12 @@ const ProfileEditScreen = ({ navigation }) => (
     <View style={styles.hint}>
       <Text style={styles.hintIcon}>💡</Text>
       <Text style={styles.hintText}>
-        지호에게는 이름·생일·소개만 보여요. 나머지는 비공개.
+        연인에게는 이름·생일·소개만 보여요. 나머지는 비공개.
       </Text>
     </View>
   </SettingsShell>
-);
+  );
+};
 
 const styles = StyleSheet.create({
   avatarCard: {

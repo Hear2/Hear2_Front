@@ -131,12 +131,12 @@ const LocationShare = ({ navigation }) => {
 
   const markers = useMemo(
     () => [
-      { id: 'me', lat: myCoord.lat, lng: myCoord.lng, label: '예진', color: FEMALE_PIN },
+      { id: 'me', lat: myCoord.lat, lng: myCoord.lng, label: '나', color: FEMALE_PIN },
       {
         id: 'partner',
         lat: PARTNER_COORD.lat,
         lng: PARTNER_COORD.lng,
-        label: '지호',
+        label: '연인',
         color: MALE_PIN,
       },
     ],

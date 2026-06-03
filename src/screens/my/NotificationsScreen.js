@@ -20,18 +20,8 @@ const PALETTE = {
   schedule: { tint: colors.blueTint,   color: colors.blue,     category: 'schedule' },
 };
 
-const NOTIFICATIONS = [
-  { kind: 'love',     icon: '💗', from: '지호',  text: '"사랑해" 메시지를 보냈어요',                time: '방금',      unread: true  },
-  { kind: 'schedule', icon: '📅', from: 'Hear2', text: '오늘 12시 "서울숲 데이트" 일정이 있어요',     time: '오전 8:00', unread: true  },
-  { kind: 'qa',       icon: '💬', from: 'Hear2', text: '오늘의 데일리 Q&A가 도착했어요',             time: '5분 전',    unread: true  },
-  { kind: 'memory',   icon: '🌸', from: 'Hear2', text: '1년 전 오늘의 추억이 있어요',               time: '오전 9:00', unread: true  },
-  { kind: 'schedule', icon: '🎂', from: 'Hear2', text: '내일 "엄마 생일" 일정이 있어요',             time: '어제',      unread: false },
-  { kind: 'judge',    icon: '⚖️', from: 'Hear2', text: '갈등 분석 결과가 준비됐어요',               time: '어제',      unread: false },
-  { kind: 'capsule',  icon: '💌', from: 'Hear2', text: '1주년 캡슐이 내일 열려요',                  time: '어제',      unread: false },
-  { kind: 'schedule', icon: '💍', from: 'Hear2', text: '4월 20일 "결혼식 참석" D-13',               time: '2일 전',    unread: false },
-  { kind: 'level',    icon: '🐣', from: '해피',  text: 'Lv.12 → Lv.13 진화 임박!',                  time: '2일 전',    unread: false },
-  { kind: 'report',   icon: '📊', from: 'Hear2', text: '이번 주 AI 관계 리포트가 준비됐어요',         time: '3일 전',    unread: false },
-];
+// 더미 알림 제거 — 실제 알림 연동 전까지 빈 목록(화면에 '알림 없음' 표시).
+const NOTIFICATIONS = [];
 
 const NotificationsScreen = ({ navigation }) => {
   const [activeFilter, setActiveFilter] = useState('unread');

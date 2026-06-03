@@ -50,6 +50,7 @@ const AuthContext = createContext({
   user: null,
   isAuthenticated: false,
   coupleConnected: false,
+  coupleStartDate: null,
   hydrating: true,
   signIn: () => {},
   signOut: () => {},
@@ -64,6 +65,8 @@ export function AuthProvider({ children }) {
   const [refreshToken, setRefreshToken] = useState(null);
   const [user, setUser] = useState(null);
   const [coupleConnected, setCoupleConnected] = useState(false);
+  // 커플 시작일(BE CoupleStatusResponse.startDate). 없으면 null → D-day 숨김.
+  const [coupleStartDate, setCoupleStartDate] = useState(null);
   const [hydrating, setHydrating] = useState(true);
 
   const accessRef = useRef(null);
@@ -128,6 +131,7 @@ export function AuthProvider({ children }) {
           const status = await fetchCoupleStatus();
           if (!mounted) return;
           const cid = status?.coupleId ?? null;
+          if (status?.startDate) setCoupleStartDate(status.startDate);
           if (status?.connected) {
             setCoupleConnected(true);
             await writeSecure(COUPLE_KEY, '1');
@@ -246,6 +250,7 @@ export function AuthProvider({ children }) {
       const connected = !!status?.connected;
       const coupleId = status?.coupleId ?? null;
       setCoupleConnected(connected);
+      setCoupleStartDate(status?.startDate ?? null);
       await persistCoupleConnected(connected);
       if (coupleId) {
         setUser((prev) => ({ ...(prev ?? {}), coupleId }));
@@ -313,6 +318,7 @@ export function AuthProvider({ children }) {
       refreshToken,
       user,
       coupleConnected,
+      coupleStartDate,
       hydrating,
       isAuthenticated: !!accessToken,
       signIn,
@@ -327,6 +333,7 @@ export function AuthProvider({ children }) {
       refreshToken,
       user,
       coupleConnected,
+      coupleStartDate,
       hydrating,
       signIn,
       signOut,

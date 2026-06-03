@@ -13,8 +13,8 @@ import colors from '../../constants/colors';
 import { useEvents } from '../../contexts/EventContext';
 
 const OWNERS_INFO = {
-  me:      { tint: 'rgba(255,138,76,0.55)',  chipLabel: '예진 일정' },
-  partner: { tint: 'rgba(108,165,255,0.55)', chipLabel: '지호 일정' },
+  me:      { tint: 'rgba(255,138,76,0.55)',  chipLabel: '내 일정' },
+  partner: { tint: 'rgba(108,165,255,0.55)', chipLabel: '연인 일정' },
   couple:  { tint: 'rgba(255,138,178,0.55)', chipLabel: '공동 일정' },
 };
 
@@ -201,7 +201,7 @@ export default function EventDetailScreen({ navigation, route }) {
             <View style={[styles.avatar, styles.avatarPartner]}>
               <Text style={styles.avatarPartnerText}>지</Text>
             </View>
-            <Text style={styles.avatarLabel}>예진 ♥ 지호</Text>
+            <Text style={styles.avatarLabel}>나 ♥ 연인</Text>
           </View>
         </LinearGradient>
 

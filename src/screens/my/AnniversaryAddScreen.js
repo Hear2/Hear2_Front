@@ -389,7 +389,7 @@ export default function AnniversaryAddScreen({ navigation, route }) {
           <Heart size={16} color={colors.heartRed} pulse />
           <View style={{ flex: 1, marginLeft: 10 }}>
             <Text style={styles.shareText}>
-              <Text style={{ fontWeight: '800' }}>지호</Text>와 함께 기념해요
+              <Text style={{ fontWeight: '800' }}>연인</Text>과 함께 기념해요
             </Text>
             <Text style={styles.shareSub}>
               두 사람 모두에게 D-DAY가 표시돼요

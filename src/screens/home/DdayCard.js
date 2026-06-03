@@ -6,10 +6,10 @@ import colors from '../../constants/colors';
 import { fetchCharacter } from '../../api/characterAPI';
 
 const DdayCard = ({
-  daysCount = 247,
-  startDate = '2025.08.03',
-  myName = '예진',
-  partnerName = '지호',
+  daysCount = null,
+  startDate = '',
+  myName = '나',
+  partnerName = '연인',
   onCharacterPress,
 }) => {
   const heartAnim = useRef(new Animated.Value(0)).current;
@@ -97,11 +97,17 @@ const DdayCard = ({
         </View>
       </TouchableOpacity>
 
-      {/* Right: Existing content */}
+      {/* Right: Existing content — 커플 시작일이 있을 때만 D-day/시작일 표시 */}
       <View style={styles.infoCol}>
         <Text style={styles.ddayLabel}>♥ 함께한 지</Text>
-        <Text style={styles.ddayCount}>D+{daysCount}</Text>
-        <Text style={styles.startDate}>{startDate} ~</Text>
+        {daysCount != null ? (
+          <>
+            <Text style={styles.ddayCount}>D+{daysCount}</Text>
+            {startDate ? <Text style={styles.startDate}>{startDate} ~</Text> : null}
+          </>
+        ) : (
+          <Text style={styles.startDate}>시작일을 등록해보세요</Text>
+        )}
 
         <View style={styles.avatarRow}>
           <View style={[styles.avatar, styles.avatarLeft]}>

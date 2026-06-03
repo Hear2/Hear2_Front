@@ -12,6 +12,8 @@ import LovelyBackground from '../../components/common/LovelyBackground';
 import Header from '../../components/common/Header';
 import Heart from '../../components/common/Heart';
 import { useCouple } from '../../contexts/CoupleContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { daysTogether } from '../../utils/dday';
 
 const Toggle = ({ on, onPress }) => (
   <TouchableOpacity
@@ -78,6 +80,12 @@ const Row = ({
 
 const SettingsScreen = ({ navigation }) => {
   const { anniversaries } = useCouple();
+  const { user, coupleStartDate } = useAuth();
+  const nickname = user?.nickname || '나';
+  const dday = daysTogether(coupleStartDate);
+  const profileSub = [user?.email, dday != null ? `♥ 연인과 ${dday}일` : null]
+    .filter(Boolean)
+    .join(' · ');
   const annCount = anniversaries.length;
   const [toggles, setToggles] = useState({
     chat: true,
@@ -124,13 +132,11 @@ const SettingsScreen = ({ navigation }) => {
           style={styles.profileCard}
         >
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>예</Text>
+            <Text style={styles.avatarText}>{nickname.charAt(0)}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.profileName}>예진</Text>
-            <Text style={styles.profileSub}>
-              yejin@hear2.app · ♥ 지호와 485일
-            </Text>
+            <Text style={styles.profileName}>{nickname}</Text>
+            <Text style={styles.profileSub}>{profileSub}</Text>
           </View>
           <TouchableOpacity
             style={styles.editPill}
@@ -147,7 +153,7 @@ const SettingsScreen = ({ navigation }) => {
           <Row
             icon="💞"
             label="커플 관리"
-            value={`지호 · ${annCount}개 기념일`}
+            value={`기념일 ${annCount}개`}
             onPress={() => navigation?.navigate('CoupleManageScreen')}
             last
           />

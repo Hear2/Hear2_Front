@@ -277,7 +277,7 @@ const ChatScreen = ({ navigation }) => {
             <View style={styles.onlineDot} />
           </View>
           <View style={styles.headerInfo}>
-            <Text style={styles.headerName}>지호</Text>
+            <Text style={styles.headerName}>연인</Text>
             <Text style={styles.headerStatus}>온라인</Text>
           </View>
         </View>

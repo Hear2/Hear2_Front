@@ -10,6 +10,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
 import Heart from '../../components/common/Heart';
+import { useAuth } from '../../contexts/AuthContext';
+import { useMemories } from '../../contexts/MemoryContext';
+import { daysTogether } from '../../utils/dday';
 
 const sections = [
   {
@@ -38,13 +41,17 @@ const sections = [
   },
 ];
 
-const stats = [
-  { value: '1,284', label: '대화' },
-  { value: '186', label: '추억' },
-  { value: '4', label: '캡슐' },
-];
-
 const MoreScreen = ({ navigation }) => {
+  const { user, coupleStartDate } = useAuth();
+  const { memories } = useMemories();
+  const dday = daysTogether(coupleStartDate);
+  const nickname = user?.nickname || '나';
+  // 통계: 추억은 실제 개수, 나머지는 BE 연동 전까지 0.
+  const stats = [
+    { value: '0', label: '대화' },
+    { value: String(memories.length), label: '추억' },
+    { value: '0', label: '캡슐' },
+  ];
   return (
     <View style={styles.container}>
       <LovelyBackground intensity={0.3} />
@@ -72,20 +79,22 @@ const MoreScreen = ({ navigation }) => {
           <View style={styles.profileTop}>
             <View style={styles.avatarWrap}>
               <View style={styles.avatar}>
-                <Text style={styles.avatarText}>예</Text>
+                <Text style={styles.avatarText}>{nickname.charAt(0)}</Text>
               </View>
               <View style={styles.cameraBadge}>
                 <Text style={styles.cameraBadgeText}>📷</Text>
               </View>
             </View>
             <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>예진</Text>
-              <Text style={styles.profileEmail}>yejin@example.com</Text>
+              <Text style={styles.profileName}>{nickname}</Text>
+              <Text style={styles.profileEmail}>{user?.email || ''}</Text>
             </View>
-            <View style={styles.ddayPill}>
-              <Heart size={12} color="#FFFFFF" />
-              <Text style={styles.ddayPillText}>D+247</Text>
-            </View>
+            {dday != null && (
+              <View style={styles.ddayPill}>
+                <Heart size={12} color="#FFFFFF" />
+                <Text style={styles.ddayPillText}>D+{dday}</Text>
+              </View>
+            )}
           </View>
           <View style={styles.statsRow}>
             {stats.map((stat, idx) => (

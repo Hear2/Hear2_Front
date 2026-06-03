@@ -38,9 +38,9 @@ const UnlinkScreen = ({ navigation }) => {
           </Svg>
         </View>
         <Text style={styles.heroEmoji}>💔</Text>
-        <Text style={styles.heroTitle}>지호와의 연결을 해제할까요?</Text>
+        <Text style={styles.heroTitle}>연인과의 연결을 해제할까요?</Text>
         <Text style={styles.heroSub}>
-          485일간의 따뜻한 시간이 끝나요.{'\n'}한 번 더 생각해볼까요? 🥺
+          함께한 따뜻한 시간이 끝나요.{'\n'}한 번 더 생각해볼까요? 🥺
         </Text>
       </LinearGradient>
 

@@ -12,6 +12,7 @@ import Heart from '../../components/common/Heart';
 import { useMemories } from '../../contexts/MemoryContext';
 import { useEvents } from '../../contexts/EventContext';
 import { useCouple } from '../../contexts/CoupleContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 const OWNER_TINT = {
   me:      'rgba(255,138,76,0.55)',
@@ -19,8 +20,8 @@ const OWNER_TINT = {
   couple:  'rgba(255,138,178,0.55)',
 };
 const OWNER_LABEL = {
-  me: '예진',
-  partner: '지호',
+  me: '나',
+  partner: '연인',
   couple: '공동',
 };
 
@@ -113,6 +114,8 @@ export default function SharedCalendar({ navigation, route }) {
   const { memories } = useMemories();
   const { events, loadMonth } = useEvents();
   const { anniversaries } = useCouple();
+  const { user } = useAuth();
+  const myName = user?.nickname || '나';
   const today = useMemo(() => new Date(), []);
 
   // 커플 관리의 기념일(자동 계산 포함)을 캘린더 이벤트 모양으로 변환해 합친다.
@@ -464,11 +467,11 @@ export default function SharedCalendar({ navigation, route }) {
           <View style={styles.legend}>
             <View style={styles.legendItem}>
               <View style={[styles.legendSwatch, { backgroundColor: HL_ORANGE }]} />
-              <Text style={styles.legendText}>예진</Text>
+              <Text style={styles.legendText}>{myName}</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendSwatch, { backgroundColor: HL_BLUE }]} />
-              <Text style={styles.legendText}>지호</Text>
+              <Text style={styles.legendText}>연인</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendSwatch, { backgroundColor: HL_PINK }]} />

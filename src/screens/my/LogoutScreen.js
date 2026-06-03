@@ -38,7 +38,7 @@ const LogoutScreen = ({ navigation }) => {
 
   const accountLabel = user?.email
     ? `${user?.nickname ?? user.email} · ${user.email}`
-    : '예진 · yejin@hear2.app';
+    : (user?.nickname ?? '내 계정');
 
   return (
     <View style={styles.container}>
@@ -53,14 +53,14 @@ const LogoutScreen = ({ navigation }) => {
           </View>
           <Text style={styles.title}>로그아웃 하시겠어요?</Text>
           <Text style={styles.subtitle}>
-            다시 로그인하면 그대로{'\n'}지호와의 추억을 만날 수 있어요 💕
+            다시 로그인하면 그대로{'\n'}연인과의 추억을 만날 수 있어요 💕
           </Text>
         </View>
 
         <View style={styles.accountRow}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
-              {(user?.nickname?.[0] ?? '예').toUpperCase()}
+              {(user?.nickname?.[0] ?? '나').toUpperCase()}
             </Text>
           </View>
           <Text style={styles.accountText}>{accountLabel}</Text>

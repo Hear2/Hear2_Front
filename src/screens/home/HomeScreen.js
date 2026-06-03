@@ -14,6 +14,8 @@ import Heart from '../../components/common/Heart';
 import Chip from '../../components/common/Chip';
 import DdayCard from './DdayCard';
 import { useMemories } from '../../contexts/MemoryContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { daysTogether, formatStartDate } from '../../utils/dday';
 
 const quickActions = [
   { emoji: '📷', label: '추억 앨범',  bg: colors.pinkTint,     route: '앨범' },
@@ -44,6 +46,8 @@ const HomeScreen = ({ navigation }) => {
 
   // 앨범과 동일한 공유 메모리 소스를 사용해 최근 추억을 표시한다.
   const { memories, refresh } = useMemories();
+  const { user, coupleStartDate } = useAuth();
+  const dday = daysTogether(coupleStartDate); // null이면 D-day 숨김
 
   useEffect(() => {
     refresh().catch(() => {});
@@ -109,10 +113,10 @@ const HomeScreen = ({ navigation }) => {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* D-Day Hero Card */}
         <DdayCard
-          daysCount={247}
-          startDate="2025.08.03"
-          myName="예진"
-          partnerName="지호"
+          daysCount={dday}
+          startDate={formatStartDate(coupleStartDate)}
+          myName={user?.nickname || '나'}
+          partnerName="연인"
           onCharacterPress={() => navigation.navigate('CharacterScreen')}
         />
 
@@ -134,28 +138,26 @@ const HomeScreen = ({ navigation }) => {
 
           <View style={styles.emotionRow}>
             <Animated.Text style={[styles.bigEmoji, { transform: [{ scale: emojiScale }] }]}>
-              😊
+              🙂
             </Animated.Text>
             <View style={styles.emotionChips}>
-              <Chip label="긍정 68%" variant="green" />
-              <Chip label="부정 22%" variant="pink" />
-              <Chip label="중립 10%" variant="gray" />
+              <Chip label="긍정 0%" variant="green" />
+              <Chip label="부정 0%" variant="pink" />
+              <Chip label="중립 0%" variant="gray" />
             </View>
           </View>
 
-          {/* Stacked emotion bar */}
+          {/* Stacked emotion bar — 분석 데이터 없으면 비움 */}
           <View style={styles.emotionBar}>
-            <View style={[styles.emotionSeg, { flex: 68, backgroundColor: colors.green }]} />
-            <View style={[styles.emotionSeg, { flex: 22, backgroundColor: colors.pink }]} />
-            <View style={[styles.emotionSeg, { flex: 10, backgroundColor: colors.line }]} />
+            <View style={[styles.emotionSeg, { flex: 1, backgroundColor: colors.line }]} />
           </View>
 
-          {/* Stats row */}
+          {/* Stats row — 사진은 실제 추억 개수, 나머지는 BE 연동 전까지 0 */}
           <View style={styles.statsRow}>
             {[
-              { icon: '💬', value: '32', label: '대화' },
-              { icon: '📸', value: '4', label: '사진' },
-              { icon: '💞', value: '12', label: '감정 기록' },
+              { icon: '💬', value: '0', label: '대화' },
+              { icon: '📸', value: String(memories.length), label: '사진' },
+              { icon: '💞', value: '0', label: '감정 기록' },
             ].map((s, i) => (
               <View key={i} style={styles.statItem}>
                 <Text style={styles.statIcon}>{s.icon}</Text>
@@ -166,7 +168,7 @@ const HomeScreen = ({ navigation }) => {
           </View>
 
           <Text style={styles.aiSummary}>
-            오늘 대화에서 긍정적인 감정이 주를 이뤘어요. 서로에 대한 배려가 느껴지는 하루네요! 💕
+            아직 분석된 감정이 없어요. 오늘의 대화를 나눠보세요 💕
           </Text>
         </TouchableOpacity>
 
