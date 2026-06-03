@@ -13,6 +13,7 @@ import { useMemories } from '../../contexts/MemoryContext';
 import { useEvents } from '../../contexts/EventContext';
 import { useCouple } from '../../contexts/CoupleContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { givenName } from '../../utils/name';
 
 const OWNER_TINT = {
   me:      'rgba(255,138,76,0.55)',
@@ -114,8 +115,9 @@ export default function SharedCalendar({ navigation, route }) {
   const { memories } = useMemories();
   const { events, loadMonth } = useEvents();
   const { anniversaries } = useCouple();
-  const { user } = useAuth();
-  const myName = user?.nickname || '나';
+  const { user, partner } = useAuth();
+  const myName = givenName(user?.nickname) || '나';
+  const partnerName = givenName(partner?.nickname) || '연인';
   const today = useMemo(() => new Date(), []);
 
   // 커플 관리의 기념일(자동 계산 포함)을 캘린더 이벤트 모양으로 변환해 합친다.
@@ -471,7 +473,7 @@ export default function SharedCalendar({ navigation, route }) {
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendSwatch, { backgroundColor: HL_BLUE }]} />
-              <Text style={styles.legendText}>연인</Text>
+              <Text style={styles.legendText}>{partnerName}</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendSwatch, { backgroundColor: HL_PINK }]} />
@@ -489,7 +491,12 @@ export default function SharedCalendar({ navigation, route }) {
               <Text style={styles.eventsTitle}>이 달의 일정</Text>
               {monthEventList.map((ev) => {
                 const tint = OWNER_TINT[ev.owner] || HL_PINK;
-                const ownerLabel = OWNER_LABEL[ev.owner] || '공동';
+                const ownerLabel =
+                  ev.owner === 'me'
+                    ? myName
+                    : ev.owner === 'partner'
+                    ? partnerName
+                    : OWNER_LABEL[ev.owner] || '공동';
                 const start = new Date(ev.startDate);
                 return (
                   <TouchableOpacity

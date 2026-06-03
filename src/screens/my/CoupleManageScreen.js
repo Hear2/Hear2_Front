@@ -18,6 +18,7 @@ import Heart from '../../components/common/Heart';
 import { useCouple } from '../../contexts/CoupleContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { daysTogether, formatStartDate } from '../../utils/dday';
+import { givenName } from '../../utils/name';
 
 // 한국어 주격 조사 이/가 (받침 있으면 '이').
 const subjParticle = (name) => {
@@ -54,12 +55,12 @@ const sortByDate = (list) =>
 
 const CoupleManageScreen = ({ navigation }) => {
   const { anniversaries, nicknames, setNickname } = useCouple();
-  const { user, coupleStartDate } = useAuth();
+  const { user, coupleStartDate, partner } = useAuth();
   const sorted = useMemo(() => sortByDate(anniversaries), [anniversaries]);
 
-  // 실데이터: 나 = 로그인 닉네임, 파트너 = '연인'(FE에 파트너 이름 소스 없음).
-  const myName = user?.nickname || '나';
-  const partnerName = '연인';
+  // 실데이터: 나 = 로그인 닉네임, 파트너 = 커플 상태의 partner.nickname.
+  const myName = givenName(user?.nickname) || '나';
+  const partnerName = givenName(partner?.nickname) || '연인';
   const dday = daysTogether(coupleStartDate);
 
   // 애칭 카드: [나→연인](편집 가능) / [연인→나](잠금). 편집은 내가 상대를 부르는 것만.
@@ -74,7 +75,7 @@ const CoupleManageScreen = ({ navigation }) => {
       label: `${c.giver}${subjParticle(c.giver)} 부르는 ${c.target}`,
       value: nicknames?.[c.giver] ?? '',
     }));
-  }, [nicknames, myName]);
+  }, [nicknames, myName, partnerName]);
 
   // 애칭 편집 모달
   const [editGiver, setEditGiver] = useState(null);

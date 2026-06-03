@@ -13,11 +13,22 @@ import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
 import { requestJudge } from '../../api/judgeAPI';
 import { sendTextMessage } from '../../api/chatAPI';
+import { useAuth } from '../../contexts/AuthContext';
+import { givenName, replaceABWithNames } from '../../utils/name';
 
 export default function AIJudgeModal({ navigation, route, onClose }) {
   const breathAnim = useRef(new Animated.Value(1)).current;
   const params = route?.params ?? {};
   const triggerMessageId = params.triggerMessageId ?? null;
+
+  // 판결문은 "A는~ B는~"로 오므로 실제 이름(성 제외)으로 치환. A=나, B=상대.
+  const { user, partner } = useAuth();
+  const myName = givenName(user?.nickname) || '나';
+  const partnerName = givenName(partner?.nickname) || '상대';
+  const fixNames = useCallback(
+    (t) => replaceABWithNames(t, myName, partnerName),
+    [myName, partnerName],
+  );
 
   const [loading, setLoading] = useState(true);
   const [verdict, setVerdict] = useState(null);
@@ -67,7 +78,7 @@ export default function AIJudgeModal({ navigation, route, onClose }) {
 
   // 화해 메시지를 채팅에 그대로 전송.
   const handleSendReconciliation = async () => {
-    const msg = verdict?.reconciliationMessage?.trim();
+    const msg = fixNames(verdict?.reconciliationMessage)?.trim();
     if (!msg || sendingRecon) return;
     setSendingRecon(true);
     try {
@@ -130,8 +141,8 @@ export default function AIJudgeModal({ navigation, route, onClose }) {
           <>
             {/* 양측 입장 카드 */}
             <View style={styles.cardsRow}>
-              <PersonCard label="내 입장" tone="me" body={verdict.summaryA} />
-              <PersonCard label="상대 입장" tone="partner" body={verdict.summaryB} />
+              <PersonCard label={myName} tone="me" body={fixNames(verdict.summaryA)} />
+              <PersonCard label={partnerName} tone="partner" body={fixNames(verdict.summaryB)} />
             </View>
 
             {/* 판결문 */}
@@ -142,11 +153,11 @@ export default function AIJudgeModal({ navigation, route, onClose }) {
               end={{ x: 1, y: 1 }}
             >
               <Text style={styles.verdictTitle}>AI 판결</Text>
-              <Text style={styles.verdictBody}>{verdict.judgement}</Text>
+              <Text style={styles.verdictBody}>{fixNames(verdict.judgement)}</Text>
               {!!verdict.solution && (
                 <View style={styles.suggestionBox}>
                   <View style={styles.suggestionHighlight} />
-                  <Text style={styles.suggestionText}>{verdict.solution}</Text>
+                  <Text style={styles.suggestionText}>{fixNames(verdict.solution)}</Text>
                 </View>
               )}
               {verdict.sameConflictCount > 1 && (
@@ -160,7 +171,7 @@ export default function AIJudgeModal({ navigation, route, onClose }) {
             {!!verdict.reconciliationMessage && (
               <View style={styles.reconCard}>
                 <Text style={styles.reconLabel}>💌 추천 화해 메시지</Text>
-                <Text style={styles.reconBody}>"{verdict.reconciliationMessage}"</Text>
+                <Text style={styles.reconBody}>"{fixNames(verdict.reconciliationMessage)}"</Text>
               </View>
             )}
 

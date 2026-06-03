@@ -8,6 +8,7 @@ import {
   TextInput,
   Switch,
   Pressable,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,6 +18,7 @@ import LovelyBackground from '../../components/common/LovelyBackground';
 import Heart from '../../components/common/Heart';
 import WheelPicker from '../../components/common/WheelPicker';
 import { useCouple } from '../../contexts/CoupleContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 const PRESETS = [
   { icon: '💕', label: '사귄 날', color: '#FC2648' },
@@ -70,6 +72,8 @@ export default function AnniversaryAddScreen({ navigation, route }) {
   // 기존 기념일(사귄날 포함) 수정 모드. editing 객체를 받아 필드를 채워준다.
   const editing = route?.params?.editing || null;
   const { addAnniversary, removeAnniversary } = useCouple();
+  const { saveCoupleStartDate } = useAuth();
+  const [saving, setSaving] = useState(false);
   const today = new Date();
   const initPreset = editing
     ? Math.max(0, PRESETS.findIndex((p) => p.label === editing.type))
@@ -118,9 +122,25 @@ export default function AnniversaryAddScreen({ navigation, route }) {
   const toggleRemind = (id) =>
     setReminders((r) => ({ ...r, [id]: !r[id] }));
 
-  const onSave = () => {
+  const onSave = async () => {
+    if (saving) return;
     const pad = (n) => String(n).padStart(2, '0');
     const isoDate = `${year}-${pad(month)}-${pad(validDay)}`;
+    const isStartDate = PRESETS[presetIdx].label === '사귄 날';
+
+    // 사귄 날이면 BE(커플 시작일)에 저장 → D-day가 서버/상대에게도 반영된다.
+    if (isStartDate) {
+      setSaving(true);
+      try {
+        await saveCoupleStartDate(isoDate);
+      } catch (e) {
+        setSaving(false);
+        Alert.alert('저장 실패', '사귄 날을 저장하지 못했어요. 잠시 후 다시 시도해주세요.');
+        return;
+      }
+      setSaving(false);
+    }
+
     // 수정 모드면 기존 항목(+사귄날이면 자동 파생 기념일)을 먼저 제거하고 새로 추가한다.
     if (editing?.id) removeAnniversary(editing.id);
     addAnniversary({
@@ -429,7 +449,13 @@ export default function AnniversaryAddScreen({ navigation, route }) {
           >
             <Heart size={14} color="#FFFFFF" />
             <Text style={styles.saveText}>
-              {onboarding ? '시작하기' : editing ? '수정 완료' : '기념일 저장'}
+              {saving
+                ? '저장 중…'
+                : onboarding
+                ? '시작하기'
+                : editing
+                ? '수정 완료'
+                : '기념일 저장'}
             </Text>
           </LinearGradient>
         </TouchableOpacity>

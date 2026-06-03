@@ -51,6 +51,7 @@ export default {
     code: `${BASE_URL}/api/v1/couples/code`,
     connect: `${BASE_URL}/api/v1/couples/connect`,
     status: `${BASE_URL}/api/v1/couples/status`,
+    startDate: `${BASE_URL}/api/v1/couples/start-date`,
     dna: (coupleId) => `${BASE_URL}/api/v1/couples/${coupleId}/dna`,
   },
 

@@ -16,6 +16,7 @@ import DdayCard from './DdayCard';
 import { useMemories } from '../../contexts/MemoryContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { daysTogether, formatStartDate } from '../../utils/dday';
+import { givenName } from '../../utils/name';
 
 const quickActions = [
   { emoji: '📷', label: '추억 앨범',  bg: colors.pinkTint,     route: '앨범' },
@@ -46,12 +47,17 @@ const HomeScreen = ({ navigation }) => {
 
   // 앨범과 동일한 공유 메모리 소스를 사용해 최근 추억을 표시한다.
   const { memories, refresh } = useMemories();
-  const { user, coupleStartDate } = useAuth();
+  const { user, coupleStartDate, partner, refreshCoupleStatus } = useAuth();
   const dday = daysTogether(coupleStartDate); // null이면 D-day 숨김
 
   useEffect(() => {
     refresh().catch(() => {});
   }, [refresh]);
+
+  // 홈 진입 시 커플 상태 동기화 — 파트너 이름/시작일을 최신으로 채운다.
+  useEffect(() => {
+    refreshCoupleStatus?.();
+  }, [refreshCoupleStatus]);
 
   // 가장 최근 4개만 홈 피드에 노출.
   const recentMemories = useMemo(() => memories.slice(0, 4), [memories]);
@@ -115,8 +121,8 @@ const HomeScreen = ({ navigation }) => {
         <DdayCard
           daysCount={dday}
           startDate={formatStartDate(coupleStartDate)}
-          myName={user?.nickname || '나'}
-          partnerName="연인"
+          myName={givenName(user?.nickname) || '나'}
+          partnerName={givenName(partner?.nickname) || '연인'}
           onCharacterPress={() => navigation.navigate('CharacterScreen')}
         />
 

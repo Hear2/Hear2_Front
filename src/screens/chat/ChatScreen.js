@@ -16,6 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
+import { givenName } from '../../utils/name';
 import Chip from '../../components/common/Chip';
 import endpoints from '../../constants/endpoints';
 import {
@@ -78,7 +79,7 @@ const formatHHMM = (iso) => {
 };
 
 const ChatScreen = ({ navigation }) => {
-  const { user } = useAuth();
+  const { user, partner } = useAuth();
   // /auth/me 응답이 user.id로 올 수도 있어 둘 다 허용. 비교는 숫자로 강제.
   const rawMyId = user?.userId ?? user?.id ?? null;
   // mock 모드에선 로그인 유저에 userId가 없어 myId가 null → 말풍선이 전부 상대쪽으로 쏠림.
@@ -277,7 +278,7 @@ const ChatScreen = ({ navigation }) => {
             <View style={styles.onlineDot} />
           </View>
           <View style={styles.headerInfo}>
-            <Text style={styles.headerName}>연인</Text>
+            <Text style={styles.headerName}>{givenName(partner?.nickname) || '연인'}</Text>
             <Text style={styles.headerStatus}>온라인</Text>
           </View>
         </View>

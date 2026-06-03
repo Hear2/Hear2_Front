@@ -22,6 +22,7 @@ import {
 import { useMemories } from '../../contexts/MemoryContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { buildPhotoSource } from '../../utils/imageSource';
+import { givenName } from '../../utils/name';
 
 const TAG_COLOR_CYCLE = [
   colors.pink,
@@ -87,7 +88,7 @@ export default function PhotoDetailScreen({ navigation, route }) {
     passedMemory?.id;
 
   const { refresh: refreshAlbum } = useMemories();
-  const { accessToken, user } = useAuth();
+  const { accessToken, user, partner } = useAuth();
 
   // BE detail (있으면 사용, 없으면 passedMemory 그대로 표시)
   const [detail, setDetail] = useState(null);
@@ -210,7 +211,9 @@ export default function PhotoDetailScreen({ navigation, route }) {
     detail?.uploaderId != null &&
     user?.userId != null &&
     detail.uploaderId === user.userId;
-  const uploaderName = isMyUpload ? user?.nickname || '나' : '파트너';
+  const uploaderName = isMyUpload
+    ? givenName(user?.nickname) || '나'
+    : givenName(partner?.nickname) || '파트너';
   const uploaderAvatarUrl = isMyUpload ? user?.profileImage : null;
 
   const goBack = () => navigation?.goBack?.();

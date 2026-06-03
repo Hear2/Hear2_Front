@@ -22,6 +22,7 @@ import {
 import {
   fetchCoupleStatus,
   connectCouple as connectCoupleRequest,
+  setCoupleStartDate as setCoupleStartDateRequest,
 } from '../api/coupleAPI';
 import endpoints from '../constants/endpoints';
 
@@ -51,6 +52,7 @@ const AuthContext = createContext({
   isAuthenticated: false,
   coupleConnected: false,
   coupleStartDate: null,
+  partner: null,
   hydrating: true,
   signIn: () => {},
   signOut: () => {},
@@ -58,6 +60,8 @@ const AuthContext = createContext({
   refreshSession: async () => null,
   refreshCoupleStatus: async () => null,
   loadMe: async () => null,
+  updateUser: () => {},
+  saveCoupleStartDate: async () => null,
 });
 
 export function AuthProvider({ children }) {
@@ -67,6 +71,8 @@ export function AuthProvider({ children }) {
   const [coupleConnected, setCoupleConnected] = useState(false);
   // 커플 시작일(BE CoupleStatusResponse.startDate). 없으면 null → D-day 숨김.
   const [coupleStartDate, setCoupleStartDate] = useState(null);
+  // 연결된 상대 정보(BE CoupleStatusResponse.partner). { userId, nickname, profileImage }
+  const [partner, setPartner] = useState(null);
   const [hydrating, setHydrating] = useState(true);
 
   const accessRef = useRef(null);
@@ -124,14 +130,15 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // /me 응답에는 coupleId가 없음. 토큰이 살아있으면 /couples/status로 따로 채움.
-      const hasCoupleId = restoredUser && restoredUser.coupleId != null;
-      if (at && !hasCoupleId && !endpoints.MOCK) {
+      // /me 응답에는 coupleId/partner/startDate가 없으므로 /couples/status로 따로 채움.
+      // coupleId가 이미 있어도 partner·startDate 동기화를 위해 항상 조회한다.
+      if (at && !endpoints.MOCK) {
         try {
           const status = await fetchCoupleStatus();
           if (!mounted) return;
           const cid = status?.coupleId ?? null;
           if (status?.startDate) setCoupleStartDate(status.startDate);
+          if (status?.partner) setPartner(status.partner);
           if (status?.connected) {
             setCoupleConnected(true);
             await writeSecure(COUPLE_KEY, '1');
@@ -194,6 +201,8 @@ export function AuthProvider({ children }) {
     setRefreshToken(null);
     setUser(null);
     setCoupleConnected(false);
+    setCoupleStartDate(null);
+    setPartner(null);
     await Promise.all([
       persistTokens(null, null, null),
       persistCoupleConnected(false),
@@ -224,6 +233,8 @@ export function AuthProvider({ children }) {
         const status = await connectCoupleRequest({ coupleCode: trimmed });
         const connected = !!status?.connected;
         const coupleId = status?.coupleId ?? null;
+        if (status?.partner) setPartner(status.partner);
+        if (status?.startDate) setCoupleStartDate(status.startDate);
         if (connected) {
           setCoupleConnected(true);
           await persistCoupleConnected(true);
@@ -251,6 +262,7 @@ export function AuthProvider({ children }) {
       const coupleId = status?.coupleId ?? null;
       setCoupleConnected(connected);
       setCoupleStartDate(status?.startDate ?? null);
+      setPartner(status?.partner ?? null);
       await persistCoupleConnected(connected);
       if (coupleId) {
         setUser((prev) => ({ ...(prev ?? {}), coupleId }));
@@ -296,6 +308,32 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  // 사귄 날(커플 시작일) 저장. BE에 PATCH 후 로컬 상태 갱신.
+  // 성공 시 갱신된 startDate(ISO)를 반환, 실패 시 throw.
+  const saveCoupleStartDate = useCallback(async (startDate) => {
+    if (endpoints.MOCK) {
+      setCoupleStartDate(startDate ?? null);
+      return startDate ?? null;
+    }
+    const status = await setCoupleStartDateRequest({ startDate });
+    const next = status?.startDate ?? startDate ?? null;
+    setCoupleStartDate(next);
+    if (status?.partner) setPartner(status.partner);
+    return next;
+  }, []);
+
+  // user 객체에 부분 필드 병합 + 로컬 영속화.
+  // 현재 BE에 프로필 수정 엔드포인트가 없어 로컬 저장만 수행한다.
+  // (BE에 PATCH 프로필 API가 생기면 여기서 함께 호출하도록 확장)
+  const updateUser = useCallback((partial) => {
+    if (!partial) return;
+    setUser((prev) => {
+      const next = { ...(prev ?? {}), ...partial };
+      writeSecure(USER_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   // client.js + chatAPI(multipart 업로드)에 토큰 주입
   useEffect(() => {
     setAuthTokenProvider(() => accessRef.current);
@@ -319,6 +357,7 @@ export function AuthProvider({ children }) {
       user,
       coupleConnected,
       coupleStartDate,
+      partner,
       hydrating,
       isAuthenticated: !!accessToken,
       signIn,
@@ -327,6 +366,8 @@ export function AuthProvider({ children }) {
       refreshSession,
       refreshCoupleStatus,
       loadMe,
+      updateUser,
+      saveCoupleStartDate,
     }),
     [
       accessToken,
@@ -334,6 +375,7 @@ export function AuthProvider({ children }) {
       user,
       coupleConnected,
       coupleStartDate,
+      partner,
       hydrating,
       signIn,
       signOut,
@@ -341,6 +383,8 @@ export function AuthProvider({ children }) {
       refreshSession,
       refreshCoupleStatus,
       loadMe,
+      updateUser,
+      saveCoupleStartDate,
     ],
   );
 

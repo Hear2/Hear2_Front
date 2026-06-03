@@ -132,6 +132,23 @@ const LoginScreen = ({ navigation }) => {
     }
   };
 
+  // 소셜 로그인 신규 유저는 닉네임이 비었거나 이메일로 채워져 있다.
+  // 그런 경우 닉네임 입력 화면을 먼저 거치게 한다.
+  const needsNickname = (u) => {
+    const nick = u?.nickname;
+    if (!nick) return true;
+    if (u?.email && nick === u.email) return true;
+    return typeof nick === 'string' && nick.includes('@');
+  };
+
+  const proceedAfterAuth = (u, connected) => {
+    if (needsNickname(u)) {
+      navigation.replace('NicknameSetup', { connected });
+    } else {
+      routeAfterSignIn(connected);
+    }
+  };
+
   // Google 응답 처리: id_token이 들어오면 백엔드로 전달
   useEffect(() => {
     if (!googleResponse) return;
@@ -158,7 +175,8 @@ const LoginScreen = ({ navigation }) => {
           user: res?.user,
         });
         const me = await loadMe?.();
-        routeAfterSignIn(!!me?.coupleId || !!res?.user?.coupleId);
+        const u = me ?? res?.user;
+        proceedAfterAuth(u, !!me?.coupleId || !!res?.user?.coupleId);
       } catch (err) {
         setError(err?.message || 'Google 로그인이 실패했어요.');
       } finally {
@@ -247,7 +265,8 @@ const LoginScreen = ({ navigation }) => {
         user: res?.user,
       });
       const me = await loadMe?.();
-      routeAfterSignIn(!!me?.coupleId || !!res?.user?.coupleId);
+      const u = me ?? res?.user;
+      proceedAfterAuth(u, !!me?.coupleId || !!res?.user?.coupleId);
     } catch (err) {
       setError(err?.message || '카카오 로그인이 실패했어요.');
     } finally {
@@ -285,7 +304,7 @@ const LoginScreen = ({ navigation }) => {
       });
       // 토큰 저장 후 /me로 프로필 동기화 — coupleId 여부로 분기
       const me = await loadMe?.();
-      routeAfterSignIn(!!me?.coupleId);
+      proceedAfterAuth(me, !!me?.coupleId);
     } catch (err) {
       setError(err?.message || '로그인에 실패했어요.');
     } finally {
