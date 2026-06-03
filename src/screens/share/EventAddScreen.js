@@ -78,31 +78,30 @@ export default function EventAddScreen({ navigation, route }) {
     : null;
   const isEditing = !!editingEvent;
 
-  const [title, setTitle] = useState(
-    () => editingEvent?.title ?? '서울숲 데이트',
-  );
+  const [title, setTitle] = useState(() => editingEvent?.title ?? '');
   const [owner, setOwner] = useState(() => editingEvent?.owner ?? 'couple');
   const [allDay, setAllDay] = useState(() => editingEvent?.allDay ?? false);
-  const [startDate, setStartDate] = useState(() =>
-    editingEvent?.startDate
-      ? new Date(editingEvent.startDate)
-      : new Date(2026, 3, 12, 14, 0),
-  );
-  const [endDate, setEndDate] = useState(() =>
-    editingEvent?.endDate
-      ? new Date(editingEvent.endDate)
-      : new Date(2026, 3, 12, 19, 0),
-  );
+  // 기본값: 오늘, 다음 정시부터 1시간짜리 일정
+  const [startDate, setStartDate] = useState(() => {
+    if (editingEvent?.startDate) return new Date(editingEvent.startDate);
+    const d = new Date();
+    d.setMinutes(0, 0, 0);
+    d.setHours(d.getHours() + 1);
+    return d;
+  });
+  const [endDate, setEndDate] = useState(() => {
+    if (editingEvent?.endDate) return new Date(editingEvent.endDate);
+    const d = new Date();
+    d.setMinutes(0, 0, 0);
+    d.setHours(d.getHours() + 2);
+    return d;
+  });
   const [reminder, setReminder] = useState(
     () => editingEvent?.reminder ?? '30m',
   );
   const [repeat, setRepeat] = useState(() => editingEvent?.repeat ?? 'none');
-  const [tags, setTags] = useState(() => editingEvent?.tags ?? ['데이트', '봄']);
-  const [memo, setMemo] = useState(
-    () =>
-      editingEvent?.memo ??
-      '벚꽃 보러 가기. 카페 들렀다가 한강 산책 코스로! 🌸',
-  );
+  const [tags, setTags] = useState(() => editingEvent?.tags ?? []);
+  const [memo, setMemo] = useState(() => editingEvent?.memo ?? '');
 
   // picker open states
   const [openStartDate, setOpenStartDate] = useState(false);
@@ -149,11 +148,8 @@ export default function EventAddScreen({ navigation, route }) {
       startDate,
       endDate,
       allDay,
-      location:
-        editingEvent?.location ?? {
-          name: '서울숲',
-          address: '서울시 성동구 서울숲길 273',
-        },
+      // 위치 등록 기능 제거 — 편집 시 기존 값만 유지
+      location: editingEvent?.location ?? null,
       reminder,
       repeat,
       tags,
@@ -314,18 +310,6 @@ export default function EventAddScreen({ navigation, route }) {
               </TouchableOpacity>
             </View>
           </View>
-
-          {/* 위치 */}
-          <TouchableOpacity activeOpacity={0.7} style={styles.card}>
-            <View style={styles.locationRow}>
-              <Text style={styles.timeIcon}>📍</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.locationName}>서울숲</Text>
-                <Text style={styles.locationAddr}>서울시 성동구 서울숲길 273</Text>
-              </View>
-              <Text style={styles.chevron}>›</Text>
-            </View>
-          </TouchableOpacity>
 
           {/* 알림 / 반복 / 태그 */}
           <View style={[styles.card, styles.metaCard]}>
@@ -545,9 +529,6 @@ const styles = StyleSheet.create({
   },
   allDayLabel: { fontSize: 13, color: colors.ink },
 
-  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  locationName: { fontSize: 13, fontWeight: '600', color: colors.ink },
-  locationAddr: { fontSize: 11, color: '#888', marginTop: 2 },
   chevron: { fontSize: 18, color: colors.inkMute, fontWeight: '300' },
 
   metaCard: { padding: 4 },
