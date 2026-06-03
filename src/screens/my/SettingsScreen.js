@@ -86,6 +86,7 @@ const SettingsScreen = ({ navigation }) => {
     location: false,
     appLock: true,
     locationShare: true,
+    googleCalendar: false,
   });
 
   const flip = (key) =>
@@ -148,6 +149,18 @@ const SettingsScreen = ({ navigation }) => {
             label="커플 관리"
             value={`지호 · ${annCount}개 기념일`}
             onPress={() => navigation?.navigate('CoupleManageScreen')}
+            last
+          />
+        </Card>
+
+        {/* calendar */}
+        <SectionLabel>캘린더</SectionLabel>
+        <Card>
+          <Row
+            icon="📅"
+            label="구글 캘린더 연동"
+            toggle={toggles.googleCalendar}
+            onToggle={() => flip('googleCalendar')}
             last
           />
         </Card>
