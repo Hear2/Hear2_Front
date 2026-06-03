@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  TextInput,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
@@ -100,27 +99,8 @@ const WhatIfScreen = ({ navigation }) => {
           </View>
         </View>
 
-        <View style={{ height: 100 }} />
+        <View style={{ height: 24 }} />
       </ScrollView>
-
-      {/* Bottom Prompt Input Bar */}
-      <View style={styles.promptBar}>
-        <Text style={styles.promptSparkle}>✨</Text>
-        <TextInput
-          style={styles.promptInput}
-          placeholder="만약에... 우리가 같이 살게 되면?"
-          placeholderTextColor={colors.inkMute}
-          editable={false}
-        />
-        <TouchableOpacity style={styles.sendBtn} activeOpacity={0.7}>
-          <LinearGradient
-            colors={[colors.pink, colors.rose]}
-            style={styles.sendGradient}
-          >
-            <Text style={styles.sendIcon}>{'>'}</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 };
@@ -274,55 +254,6 @@ const styles = StyleSheet.create({
   simBtnFillText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  promptBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingBottom: 32,
-    borderTopWidth: 1,
-    borderTopColor: colors.line2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  promptSparkle: {
-    fontSize: 20,
-    marginRight: 10,
-  },
-  promptInput: {
-    flex: 1,
-    fontSize: 15,
-    color: colors.ink,
-    backgroundColor: colors.bgInput,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  sendBtn: {
-    marginLeft: 10,
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  sendGradient: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sendIcon: {
-    fontSize: 18,
-    fontWeight: '800',
     color: '#FFFFFF',
   },
 });

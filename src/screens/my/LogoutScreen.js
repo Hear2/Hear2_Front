@@ -10,6 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import colors from '../../constants/colors';
 import { useAuth } from '../../contexts/AuthContext';
+import Avatar from '../../components/common/Avatar';
 
 const LogoutScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
@@ -58,11 +59,13 @@ const LogoutScreen = ({ navigation }) => {
         </View>
 
         <View style={styles.accountRow}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {(user?.nickname?.[0] ?? '나').toUpperCase()}
-            </Text>
-          </View>
+          <Avatar
+            uri={user?.profileImage}
+            name={user?.nickname || '나'}
+            size={36}
+            bg="#FFFFFF"
+            textColor={colors.pinkDeep}
+          />
           <Text style={styles.accountText}>{accountLabel}</Text>
         </View>
 

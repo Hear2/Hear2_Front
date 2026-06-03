@@ -4,6 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import colors from '../../constants/colors';
 import { fetchCharacter } from '../../api/characterAPI';
+import { useAuth } from '../../contexts/AuthContext';
+import Avatar from '../../components/common/Avatar';
 
 const DdayCard = ({
   daysCount = null,
@@ -12,6 +14,8 @@ const DdayCard = ({
   partnerName = '연인',
   onCharacterPress,
 }) => {
+  // 프로필 사진 표시용 (이름 props는 이미 성 제거된 값이라 원본 닉네임은 컨텍스트에서)
+  const { user, partner } = useAuth();
   const heartAnim = useRef(new Animated.Value(0)).current;
   const sparkleAnim = useRef(new Animated.Value(0.3)).current;
   const breatheAnim = useRef(new Animated.Value(1)).current;
@@ -110,12 +114,22 @@ const DdayCard = ({
         )}
 
         <View style={styles.avatarRow}>
-          <View style={[styles.avatar, styles.avatarLeft]}>
-            <Text style={styles.avatarText}>{myName.charAt(0)}</Text>
-          </View>
-          <View style={[styles.avatar, styles.avatarRight]}>
-            <Text style={styles.avatarText}>{partnerName.charAt(0)}</Text>
-          </View>
+          <Avatar
+            uri={user?.profileImage}
+            name={user?.nickname || myName}
+            size={36}
+            bg="rgba(255,255,255,0.3)"
+            textColor="#FFFFFF"
+            style={[styles.avatarLeft, { borderWidth: 2, borderColor: '#FFFFFF' }]}
+          />
+          <Avatar
+            uri={partner?.profileImage}
+            name={partner?.nickname || partnerName}
+            size={36}
+            bg="rgba(255,255,255,0.3)"
+            textColor="#FFFFFF"
+            style={[styles.avatarRight, { borderWidth: 2, borderColor: '#FFFFFF' }]}
+          />
         </View>
         <Text style={styles.coupleNames}>{myName} ♥ {partnerName}</Text>
       </View>

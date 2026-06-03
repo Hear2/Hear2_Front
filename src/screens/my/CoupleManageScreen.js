@@ -17,6 +17,7 @@ import SettingsShell from './SettingsShell';
 import Heart from '../../components/common/Heart';
 import { useCouple } from '../../contexts/CoupleContext';
 import { useAuth } from '../../contexts/AuthContext';
+import Avatar from '../../components/common/Avatar';
 import { daysTogether, formatStartDate } from '../../utils/dday';
 import { givenName } from '../../utils/name';
 
@@ -120,19 +121,25 @@ const CoupleManageScreen = ({ navigation }) => {
       </View>
 
       <View style={styles.coupleRow}>
-        <View style={[styles.avatar, { backgroundColor: '#FFE4EE' }]}>
-          <Text style={[styles.avatarText, { color: colors.pinkDeep }]}>
-            {myName.charAt(0)}
-          </Text>
-        </View>
+        <Avatar
+          uri={user?.profileImage}
+          name={user?.nickname || myName}
+          size={48}
+          bg="#FFE4EE"
+          textColor={colors.pinkDeep}
+          style={{ borderWidth: 3, borderColor: '#FFFFFF' }}
+        />
         <View style={styles.heartWrap}>
           <Heart size={20} color="#FFFFFF" pulse />
         </View>
-        <View style={[styles.avatar, { backgroundColor: colors.blueTint, marginLeft: -8 }]}>
-          <Text style={[styles.avatarText, { color: colors.blue }]}>
-            {partnerName.charAt(0)}
-          </Text>
-        </View>
+        <Avatar
+          uri={partner?.profileImage}
+          name={partner?.nickname || partnerName}
+          size={48}
+          bg={colors.blueTint}
+          textColor={colors.blue}
+          style={{ borderWidth: 3, borderColor: '#FFFFFF', marginLeft: -8 }}
+        />
         <View style={styles.coupleInfo}>
           <Text style={styles.coupleName}>{myName} ♥ {partnerName}</Text>
           <Text style={styles.coupleSub}>

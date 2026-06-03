@@ -11,12 +11,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
 import { useEvents } from '../../contexts/EventContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { givenName } from '../../utils/name';
+import { resolveCoupleGenders } from '../../utils/gender';
+import Avatar from '../../components/common/Avatar';
 
-const OWNERS_INFO = {
-  me:      { tint: 'rgba(255,138,76,0.55)',  chipLabel: '내 일정' },
-  partner: { tint: 'rgba(108,165,255,0.55)', chipLabel: '연인 일정' },
-  couple:  { tint: 'rgba(255,138,178,0.55)', chipLabel: '공동 일정' },
-};
+// 일정 색: 성별 기반 (남=파랑, 여=주황). couple은 핑크 고정.
+const HL_ORANGE = 'rgba(255,138,76,0.55)';
+const HL_BLUE = 'rgba(108,165,255,0.55)';
+const HL_PINK = 'rgba(255,138,178,0.55)';
+const HL_BY_GENDER = { male: HL_BLUE, female: HL_ORANGE };
+// 아바타 이니셜 배경(불투명 버전)
+const AV_ORANGE = '#FF8A4C';
+const AV_BLUE = '#4D96FF';
+const AV_BY_GENDER = { male: AV_BLUE, female: AV_ORANGE };
 
 const REMINDER_LABEL = {
   none: '알림 없음',
@@ -99,7 +107,23 @@ export default function EventDetailScreen({ navigation, route }) {
   const event = found || DEMO_EVENT;
   const isUserEvent = !!found;
 
-  const ownerObj = OWNERS_INFO[event.owner] || OWNERS_INFO.couple;
+  // 실제 프로필 + 성별 기반 색
+  const { user, partner } = useAuth();
+  const myName = givenName(user?.nickname) || '나';
+  const partnerName = givenName(partner?.nickname) || '연인';
+  const { mine: myGender, partner: partnerGender } = resolveCoupleGenders(
+    user?.gender,
+    partner?.gender,
+  );
+  const ownersInfo = {
+    me: { tint: HL_BY_GENDER[myGender] || HL_ORANGE, chipLabel: '내 일정' },
+    partner: {
+      tint: HL_BY_GENDER[partnerGender] || HL_BLUE,
+      chipLabel: '연인 일정',
+    },
+    couple: { tint: HL_PINK, chipLabel: '공동 일정' },
+  };
+  const ownerObj = ownersInfo[event.owner] || ownersInfo.couple;
   const start = new Date(event.startDate);
   const end = new Date(event.endDate);
   const allDay = !!event.allDay;
@@ -124,8 +148,6 @@ export default function EventDetailScreen({ navigation, route }) {
   const repeatLabel = REPEAT_LABEL[event.repeat] ?? '안 함';
 
   const goBack = () => navigation?.goBack?.();
-  const goChat = () =>
-    navigation?.navigate?.('MainTabs', { screen: '채팅' });
 
   const handleEdit = () => {
     if (!isUserEvent) {
@@ -195,13 +217,23 @@ export default function EventDetailScreen({ navigation, route }) {
           </Text>
 
           <View style={styles.avatarRow}>
-            <View style={[styles.avatar, styles.avatarMe]}>
-              <Text style={styles.avatarMeText}>예</Text>
-            </View>
-            <View style={[styles.avatar, styles.avatarPartner]}>
-              <Text style={styles.avatarPartnerText}>지</Text>
-            </View>
-            <Text style={styles.avatarLabel}>나 ♥ 연인</Text>
+            <Avatar
+              uri={user?.profileImage}
+              name={user?.nickname}
+              size={32}
+              bg={AV_BY_GENDER[myGender] || AV_ORANGE}
+              style={styles.avatarRing}
+            />
+            <Avatar
+              uri={partner?.profileImage}
+              name={partner?.nickname}
+              size={32}
+              bg={AV_BY_GENDER[partnerGender] || AV_BLUE}
+              style={[styles.avatarRing, styles.avatarOverlap]}
+            />
+            <Text style={styles.avatarLabel}>
+              {myName} ♥ {partnerName}
+            </Text>
           </View>
         </LinearGradient>
 
@@ -282,32 +314,6 @@ export default function EventDetailScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Couple chat preview */}
-        <View style={styles.cardWrap}>
-          <View style={styles.chatCard}>
-            <View style={styles.chatHeader}>
-              <View style={styles.chatHeaderLeft}>
-                <Text style={styles.chatHeart}>♥</Text>
-                <Text style={styles.chatHeaderTitle}>이 일정에 대해</Text>
-              </View>
-              <TouchableOpacity onPress={goChat} hitSlop={8}>
-                <Text style={styles.chatGoLink}>채팅으로 가기</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.bubblePartnerWrap}>
-              <Text style={styles.bubblePartnerText}>이날 같이 가자 💕</Text>
-            </View>
-            <LinearGradient
-              colors={[colors.pink, colors.heartRed]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.bubbleMineWrap}
-            >
-              <Text style={styles.bubbleMineText}>좋아! 잊지말고 챙기자 🍱</Text>
-            </LinearGradient>
-          </View>
-        </View>
-
         {/* Actions */}
         <View style={styles.actionsRow}>
           <TouchableOpacity style={styles.actionBtn} activeOpacity={0.85}>
@@ -384,19 +390,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  avatarRing: {
     borderWidth: 2,
     borderColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  avatarMe: { backgroundColor: '#FFE4EE' },
-  avatarMeText: { fontSize: 12, fontWeight: '700', color: colors.pinkDeep },
-  avatarPartner: { backgroundColor: colors.blueTint, marginLeft: -10 },
-  avatarPartnerText: { fontSize: 12, fontWeight: '700', color: colors.blue },
+  avatarOverlap: { marginLeft: -10 },
   avatarLabel: {
     marginLeft: 12,
     fontSize: 12,
@@ -478,46 +476,6 @@ const styles = StyleSheet.create({
   metaLabel: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.ink },
   metaValue: { fontSize: 12, color: '#888' },
 
-  chatCard: {
-    padding: 14,
-    borderRadius: 16,
-    backgroundColor: '#FFF8FB',
-    borderWidth: 1,
-    borderColor: '#FFD0E0',
-  },
-  chatHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  chatHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  chatHeart: { fontSize: 14, color: colors.heartRed },
-  chatHeaderTitle: { fontSize: 13, fontWeight: '700', color: colors.ink },
-  chatGoLink: { fontSize: 11, color: colors.pink, fontWeight: '600' },
-
-  bubblePartnerWrap: {
-    alignSelf: 'flex-start',
-    maxWidth: '78%',
-    padding: 10,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    borderTopLeftRadius: 4,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: colors.line2,
-    marginBottom: 6,
-  },
-  bubblePartnerText: { fontSize: 12, color: colors.ink },
-  bubbleMineWrap: {
-    alignSelf: 'flex-end',
-    maxWidth: '78%',
-    padding: 10,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    borderTopRightRadius: 4,
-  },
-  bubbleMineText: { fontSize: 12, color: '#fff' },
 
   actionsRow: {
     flexDirection: 'row',

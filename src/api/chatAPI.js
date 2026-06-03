@@ -24,6 +24,18 @@ export function sendTextMessage({ content } = {}) {
   });
 }
 
+// 감정분석 피드백. 메시지에 붙은 감정 분석이 맞는지 사용자가 알려준다.
+// isCorrect=true(맞아요) / false(아니에요). 한 번만 제출, 재제출은 update 개념.
+// 반환(예시): { emotionFeedback: boolean }
+export function sendEmotionFeedback({ messageId, isCorrect } = {}) {
+  if (endpoints.MOCK) {
+    return new Promise((resolve) =>
+      setTimeout(() => resolve({ emotionFeedback: isCorrect }), 300),
+    );
+  }
+  return post(endpoints.chat.emotionFeedback(messageId), { isCorrect });
+}
+
 // 이미지/동영상 메시지 (Stage 2). 사전에 /media 업로드 후 받은 정보를 전달.
 export function sendMediaMessage({
   messageType,

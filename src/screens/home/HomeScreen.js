@@ -15,6 +15,7 @@ import Chip from '../../components/common/Chip';
 import DdayCard from './DdayCard';
 import { useMemories } from '../../contexts/MemoryContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCoupleStats } from '../../hooks/useCoupleStats';
 import { daysTogether, formatStartDate } from '../../utils/dday';
 import { givenName } from '../../utils/name';
 
@@ -48,6 +49,16 @@ const HomeScreen = ({ navigation }) => {
   // 앨범과 동일한 공유 메모리 소스를 사용해 최근 추억을 표시한다.
   const { memories, refresh } = useMemories();
   const { user, coupleStartDate, partner, refreshCoupleStatus } = useAuth();
+  // 대화/감정기록 카운트 + 긍·부·중 비율 (화면 포커스마다 갱신)
+  const { chatCount, emotionCount, posPct, negPct, neuPct } = useCoupleStats();
+  const hasEmotion = emotionCount > 0;
+  const bigEmoji = !hasEmotion
+    ? '🙂'
+    : posPct >= negPct && posPct >= neuPct
+      ? '😊'
+      : negPct > posPct && negPct >= neuPct
+        ? '😢'
+        : '🙂';
   const dday = daysTogether(coupleStartDate); // null이면 D-day 숨김
 
   useEffect(() => {
@@ -144,26 +155,40 @@ const HomeScreen = ({ navigation }) => {
 
           <View style={styles.emotionRow}>
             <Animated.Text style={[styles.bigEmoji, { transform: [{ scale: emojiScale }] }]}>
-              🙂
+              {bigEmoji}
             </Animated.Text>
             <View style={styles.emotionChips}>
-              <Chip label="긍정 0%" variant="green" />
-              <Chip label="부정 0%" variant="pink" />
-              <Chip label="중립 0%" variant="gray" />
+              <Chip label={`긍정 ${posPct}%`} variant="green" />
+              <Chip label={`부정 ${negPct}%`} variant="pink" />
+              <Chip label={`중립 ${neuPct}%`} variant="gray" />
             </View>
           </View>
 
-          {/* Stacked emotion bar — 분석 데이터 없으면 비움 */}
+          {/* Stacked emotion bar — 감정 비율대로 채움, 데이터 없으면 회색 */}
           <View style={styles.emotionBar}>
-            <View style={[styles.emotionSeg, { flex: 1, backgroundColor: colors.line }]} />
+            {hasEmotion ? (
+              <>
+                {posPct > 0 && (
+                  <View style={[styles.emotionSeg, { flex: posPct, backgroundColor: colors.green }]} />
+                )}
+                {negPct > 0 && (
+                  <View style={[styles.emotionSeg, { flex: negPct, backgroundColor: colors.pink }]} />
+                )}
+                {neuPct > 0 && (
+                  <View style={[styles.emotionSeg, { flex: neuPct, backgroundColor: colors.line }]} />
+                )}
+              </>
+            ) : (
+              <View style={[styles.emotionSeg, { flex: 1, backgroundColor: colors.line }]} />
+            )}
           </View>
 
-          {/* Stats row — 사진은 실제 추억 개수, 나머지는 BE 연동 전까지 0 */}
+          {/* Stats row — 대화/감정기록은 메시지 API, 사진은 추억 개수 */}
           <View style={styles.statsRow}>
             {[
-              { icon: '💬', value: '0', label: '대화' },
+              { icon: '💬', value: String(chatCount), label: '대화' },
               { icon: '📸', value: String(memories.length), label: '사진' },
-              { icon: '💞', value: '0', label: '감정 기록' },
+              { icon: '💞', value: String(emotionCount), label: '감정 기록' },
             ].map((s, i) => (
               <View key={i} style={styles.statItem}>
                 <Text style={styles.statIcon}>{s.icon}</Text>
@@ -174,7 +199,9 @@ const HomeScreen = ({ navigation }) => {
           </View>
 
           <Text style={styles.aiSummary}>
-            아직 분석된 감정이 없어요. 오늘의 대화를 나눠보세요 💕
+            {hasEmotion
+              ? `최근 대화 ${emotionCount}건 분석 — 긍정 ${posPct}% · 부정 ${negPct}% · 중립 ${neuPct}%`
+              : '아직 분석된 감정이 없어요. 오늘의 대화를 나눠보세요 💕'}
           </Text>
         </TouchableOpacity>
 

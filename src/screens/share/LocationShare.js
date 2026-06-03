@@ -8,8 +8,17 @@ import {
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 import * as Location from 'expo-location';
 import colors from '../../constants/colors';
+import endpoints from '../../constants/endpoints';
 import Header from '../../components/common/Header';
 import KakaoMap from '../../components/common/KakaoMap';
+import {
+  uploadMyLocation,
+  fetchCoupleLocation,
+  setLocationSharing,
+} from '../../api/locationAPI';
+import { useAuth } from '../../contexts/AuthContext';
+import { givenName } from '../../utils/name';
+import { resolveCoupleGenders, genderColor } from '../../utils/gender';
 
 const MyLocationIcon = ({ color = '#1E2152' }) => (
   <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
@@ -75,18 +84,41 @@ const RefreshIcon = ({ color = '#1E2152' }) => (
   </Svg>
 );
 
-// 핀 색상: 예진(여) 핑크 / 지호(남) 파랑
+// 핀 색상: 성별 기반 (여=핑크, 남=파랑). 성별을 모르면 나=핑크/상대=파랑 폴백.
 const FEMALE_PIN = '#FF6B9D';
 const MALE_PIN = '#4D96FF';
 
-// 파트너 위치는 임시 하드코딩 (백엔드 연결 전): 홍대입구역 부근
-const PARTNER_COORD = { lat: 37.5572, lng: 126.9244, label: '홍대입구' };
+// mock 모드용 파트너 위치 (홍대입구역 부근). 실모드에선 BE에서 받아온다.
+const MOCK_PARTNER_COORD = { lat: 37.5572, lng: 126.9244 };
 // 내 위치 fallback (권한 거부 시): 연남동
 const FALLBACK_MY_COORD = { lat: 37.5641, lng: 126.9244, label: '연남동' };
 
+// 상대 위치 폴링 주기. 화면이 떠 있는 동안 주기적으로 내 위치 업로드 + 상대 위치 조회.
+const SYNC_INTERVAL_MS = 10000;
+
 const LocationShare = ({ navigation }) => {
+  const { user, partner } = useAuth();
+  const partnerName = givenName(partner?.nickname) || '연인';
+  // 성별 기반 핀 색. 상대 성별은 BE에 없으면 내 성별의 반대로 추정.
+  const { mine: myGender, partner: partnerGender } = resolveCoupleGenders(
+    user?.gender,
+    partner?.gender,
+  );
+  const myPin = genderColor(myGender, {
+    male: MALE_PIN,
+    female: FEMALE_PIN,
+    fallback: FEMALE_PIN,
+  });
+  const partnerPin = genderColor(partnerGender, {
+    male: MALE_PIN,
+    female: FEMALE_PIN,
+    fallback: MALE_PIN,
+  });
+
   const mapRef = useRef(null);
   const [myCoord, setMyCoord] = useState(FALLBACK_MY_COORD);
+  // 상대 위치: BE에서 받아온 실데이터. null이면 아직 상대 위치 없음(미공유/미업로드).
+  const [partnerCoord, setPartnerCoord] = useState(null);
   const [mapError, setMapError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -97,51 +129,113 @@ const LocationShare = ({ navigation }) => {
       const loc = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
-      const next = { lat: loc.coords.latitude, lng: loc.coords.longitude };
-      setMyCoord(next);
+      // GPS 좌표는 소수점 끝자리가 계속 흔들린다(지터) — 6자리(≈10cm)로 라운딩하고,
+      // 실질적으로 같은 위치면 상태 갱신을 건너뛰어 불필요한 리렌더/지도 갱신을 막는다.
+      const round6 = (n) => Math.round(n * 1e6) / 1e6;
+      const next = {
+        lat: round6(loc.coords.latitude),
+        lng: round6(loc.coords.longitude),
+      };
+      setMyCoord((prev) =>
+        prev.lat === next.lat && prev.lng === next.lng ? prev : next,
+      );
       return next;
     } catch {
       return null;
     }
   }, []);
 
-  useEffect(() => {
-    loadMyLocation();
+  // 내 위치 업로드 + 상대 위치 조회 (커플 앱 취지: 자동 공유).
+  // 내 공유가 OFF 상태(403)면 자동으로 켜고 재시도한다.
+  const syncLocations = useCallback(async () => {
+    if (endpoints.MOCK) {
+      setPartnerCoord(MOCK_PARTNER_COORD);
+      return;
+    }
+    const me = await loadMyLocation();
+    if (me) {
+      try {
+        await uploadMyLocation({
+          lat: me.lat,
+          lng: me.lng,
+          capturedAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        if (err?.status === 403) {
+          try {
+            await setLocationSharing(true);
+            await uploadMyLocation({
+              lat: me.lat,
+              lng: me.lng,
+              capturedAt: new Date().toISOString(),
+            });
+          } catch (_) {}
+        }
+      }
+    }
+    try {
+      const res = await fetchCoupleLocation();
+      setPartnerCoord(
+        res?.partner?.lat != null && res?.partner?.lng != null
+          ? { lat: res.partner.lat, lng: res.partner.lng }
+          : null,
+      );
+    } catch (err) {
+      if (err?.status === 403) {
+        // 내 공유 OFF로 조회가 막힌 경우 → 켜고 한 번 재시도
+        try {
+          await setLocationSharing(true);
+          const res = await fetchCoupleLocation();
+          setPartnerCoord(
+            res?.partner?.lat != null
+              ? { lat: res.partner.lat, lng: res.partner.lng }
+              : null,
+          );
+        } catch (_) {}
+      }
+    }
   }, [loadMyLocation]);
+
+  // 진입 시 1회 + 주기 폴링
+  useEffect(() => {
+    syncLocations();
+    const t = setInterval(syncLocations, SYNC_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [syncLocations]);
 
   const handleRefresh = useCallback(async () => {
     if (refreshing) return;
     setRefreshing(true);
-    const next = await loadMyLocation();
-    const me = next || myCoord;
-    mapRef.current?.fitBounds([
-      { lat: me.lat, lng: me.lng },
-      { lat: PARTNER_COORD.lat, lng: PARTNER_COORD.lng },
-    ]);
+    await syncLocations();
+    const points = [{ lat: myCoord.lat, lng: myCoord.lng }];
+    if (partnerCoord) points.push(partnerCoord);
+    mapRef.current?.fitBounds(points);
     setRefreshing(false);
-  }, [loadMyLocation, myCoord, refreshing]);
+  }, [syncLocations, myCoord, partnerCoord, refreshing]);
 
-  const center = useMemo(
-    () => ({
-      lat: (myCoord.lat + PARTNER_COORD.lat) / 2,
-      lng: (myCoord.lng + PARTNER_COORD.lng) / 2,
-    }),
-    [myCoord],
-  );
+  const center = useMemo(() => {
+    if (!partnerCoord) return { lat: myCoord.lat, lng: myCoord.lng };
+    return {
+      lat: (myCoord.lat + partnerCoord.lat) / 2,
+      lng: (myCoord.lng + partnerCoord.lng) / 2,
+    };
+  }, [myCoord, partnerCoord]);
 
-  const markers = useMemo(
-    () => [
-      { id: 'me', lat: myCoord.lat, lng: myCoord.lng, label: '나', color: FEMALE_PIN },
-      {
+  const markers = useMemo(() => {
+    const arr = [
+      { id: 'me', lat: myCoord.lat, lng: myCoord.lng, label: '나', color: myPin },
+    ];
+    if (partnerCoord) {
+      arr.push({
         id: 'partner',
-        lat: PARTNER_COORD.lat,
-        lng: PARTNER_COORD.lng,
-        label: '연인',
-        color: MALE_PIN,
-      },
-    ],
-    [myCoord],
-  );
+        lat: partnerCoord.lat,
+        lng: partnerCoord.lng,
+        label: partnerName,
+        color: partnerPin,
+      });
+    }
+    return arr;
+  }, [myCoord, partnerCoord, partnerName, myPin, partnerPin]);
 
   const handleFitBoth = () => {
     mapRef.current?.fitBounds(markers.map(({ lat, lng }) => ({ lat, lng })));
@@ -190,6 +284,16 @@ const LocationShare = ({ navigation }) => {
             onError={(msg) => setMapError(msg || 'unknown')}
             style={StyleSheet.absoluteFill}
           />
+        )}
+
+        {/* 상대 위치가 아직 없을 때 안내 배너 */}
+        {!mapError && !partnerCoord && !endpoints.MOCK && (
+          <View style={styles.partnerBanner}>
+            <Text style={styles.partnerBannerText}>
+              아직 {partnerName}의 위치가 없어요 · 상대가 위치 공유 화면을 열면
+              표시돼요
+            </Text>
+          </View>
         )}
 
         {/* 우측 컨트롤 */}
@@ -245,6 +349,24 @@ const styles = StyleSheet.create({
     color: colors.ink3,
     textAlign: 'center',
     lineHeight: 18,
+  },
+
+  partnerBanner: {
+    position: 'absolute',
+    top: 12,
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(30,33,82,0.85)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  partnerBannerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 17,
   },
 
   zoomControls: {

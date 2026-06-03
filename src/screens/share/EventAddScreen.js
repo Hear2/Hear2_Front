@@ -18,12 +18,21 @@ import TimePicker from '../../components/common/TimePicker';
 import SimpleListPicker from '../../components/common/SimpleListPicker';
 import TagPicker from '../../components/common/TagPicker';
 import { useEvents } from '../../contexts/EventContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { resolveCoupleGenders } from '../../utils/gender';
 
-const OWNERS = [
-  { id: 'me',      label: '나', tint: 'rgba(255,138,76,0.55)',  accent: '#E07A2C' },
-  { id: 'partner', label: '연인', tint: 'rgba(108,165,255,0.55)', accent: colors.blue },
-  { id: 'couple',  label: '공동',     tint: 'rgba(255,138,178,0.55)', accent: colors.pinkDeep },
-];
+// 일정 색: 성별 기반 (남=파랑, 여=주황). couple은 핑크 고정.
+const TINT_ORANGE = 'rgba(255,138,76,0.55)';
+const TINT_BLUE = 'rgba(108,165,255,0.55)';
+const TINT_PINK = 'rgba(255,138,178,0.55)';
+const ACCENT_ORANGE = '#E07A2C';
+const ACCENT_BLUE = colors.blue;
+const ownerPalette = (gender, fallbackTint, fallbackAccent) =>
+  gender === 'male'
+    ? { tint: TINT_BLUE, accent: ACCENT_BLUE }
+    : gender === 'female'
+      ? { tint: TINT_ORANGE, accent: ACCENT_ORANGE }
+      : { tint: fallbackTint, accent: fallbackAccent };
 
 const REMINDERS = [
   { value: 'none',  label: '알림 없음' },
@@ -103,6 +112,22 @@ export default function EventAddScreen({ navigation, route }) {
   const [openReminder, setOpenReminder] = useState(false);
   const [openRepeat, setOpenRepeat] = useState(false);
   const [openTag, setOpenTag] = useState(false);
+
+  // 성별 기반 일정 색 (남=파랑, 여=주황)
+  const { user, partner } = useAuth();
+  const { mine: myGender, partner: partnerGender } = resolveCoupleGenders(
+    user?.gender,
+    partner?.gender,
+  );
+  const OWNERS = [
+    { id: 'me', label: '나', ...ownerPalette(myGender, TINT_ORANGE, ACCENT_ORANGE) },
+    {
+      id: 'partner',
+      label: '연인',
+      ...ownerPalette(partnerGender, TINT_BLUE, ACCENT_BLUE),
+    },
+    { id: 'couple', label: '공동', tint: TINT_PINK, accent: colors.pinkDeep },
+  ];
 
   const ownerObj = OWNERS.find((o) => o.id === owner) ?? OWNERS[2];
   const reminderLabel =

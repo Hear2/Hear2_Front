@@ -11,6 +11,8 @@ import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
 import Heart from '../../components/common/Heart';
 import { useAuth } from '../../contexts/AuthContext';
+import Avatar from '../../components/common/Avatar';
+import { useCoupleStats } from '../../hooks/useCoupleStats';
 import { useMemories } from '../../contexts/MemoryContext';
 import { daysTogether } from '../../utils/dday';
 
@@ -46,11 +48,12 @@ const MoreScreen = ({ navigation }) => {
   const { memories } = useMemories();
   const dday = daysTogether(coupleStartDate);
   const nickname = user?.nickname || '나';
-  // 통계: 추억은 실제 개수, 나머지는 BE 연동 전까지 0.
+  // 통계: 대화·캡슐은 BE 집계, 추억은 앨범 개수. 화면 포커스마다 갱신.
+  const { chatCount, capsuleCount } = useCoupleStats({ withCapsules: true });
   const stats = [
-    { value: '0', label: '대화' },
+    { value: String(chatCount), label: '대화' },
     { value: String(memories.length), label: '추억' },
-    { value: '0', label: '캡슐' },
+    { value: String(capsuleCount), label: '캡슐' },
   ];
   return (
     <View style={styles.container}>
@@ -78,9 +81,14 @@ const MoreScreen = ({ navigation }) => {
         >
           <View style={styles.profileTop}>
             <View style={styles.avatarWrap}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{nickname.charAt(0)}</Text>
-              </View>
+              <Avatar
+                uri={user?.profileImage}
+                name={nickname}
+                size={52}
+                bg="rgba(255,255,255,0.35)"
+                textColor="#FFFFFF"
+                style={{ borderWidth: 2, borderColor: '#FFFFFF' }}
+              />
               <View style={styles.cameraBadge}>
                 <Text style={styles.cameraBadgeText}>📷</Text>
               </View>

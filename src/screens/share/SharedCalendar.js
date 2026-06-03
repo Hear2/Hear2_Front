@@ -14,12 +14,8 @@ import { useEvents } from '../../contexts/EventContext';
 import { useCouple } from '../../contexts/CoupleContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { givenName } from '../../utils/name';
+import { resolveCoupleGenders } from '../../utils/gender';
 
-const OWNER_TINT = {
-  me:      'rgba(255,138,76,0.55)',
-  partner: 'rgba(108,165,255,0.55)',
-  couple:  'rgba(255,138,178,0.55)',
-};
 const OWNER_LABEL = {
   me: '나',
   partner: '연인',
@@ -118,6 +114,20 @@ export default function SharedCalendar({ navigation, route }) {
   const { user, partner } = useAuth();
   const myName = givenName(user?.nickname) || '나';
   const partnerName = givenName(partner?.nickname) || '연인';
+  // 일정 색: 성별 기반 (남=파랑, 여=주황). 상대 성별은 BE에 없으면 내 성별 반대로 추정.
+  const { mine: myGender, partner: partnerGender } = resolveCoupleGenders(
+    user?.gender,
+    partner?.gender,
+  );
+  const HL_BY_GENDER = { male: HL_BLUE, female: HL_ORANGE };
+  const ownerTint = useMemo(
+    () => ({
+      me: HL_BY_GENDER[myGender] || HL_ORANGE,
+      partner: HL_BY_GENDER[partnerGender] || HL_BLUE,
+      couple: HL_PINK,
+    }),
+    [myGender, partnerGender], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const today = useMemo(() => new Date(), []);
 
   // 커플 관리의 기념일(자동 계산 포함)을 캘린더 이벤트 모양으로 변환해 합친다.
@@ -249,7 +259,7 @@ export default function SharedCalendar({ navigation, route }) {
     }
     eventSegments.forEach((seg) => {
       if (!map[seg.day]) map[seg.day] = [];
-      const tint = OWNER_TINT[seg.event.owner] || HL_PINK;
+      const tint = ownerTint[seg.event.owner] || HL_PINK;
       const top = map[seg.day].length % 2 === 0 ? HL_TOP_1 : HL_TOP_2;
       map[seg.day].push({
         c: tint,
@@ -260,7 +270,7 @@ export default function SharedCalendar({ navigation, route }) {
       });
     });
     return map;
-  }, [isAprilDemo, eventSegments]);
+  }, [isAprilDemo, eventSegments, ownerTint]);
 
   const heartDays = useMemo(() => {
     const set = new Set();
@@ -468,11 +478,13 @@ export default function SharedCalendar({ navigation, route }) {
           {/* Legend */}
           <View style={styles.legend}>
             <View style={styles.legendItem}>
-              <View style={[styles.legendSwatch, { backgroundColor: HL_ORANGE }]} />
+              <View style={[styles.legendSwatch, { backgroundColor: ownerTint.me }]} />
               <Text style={styles.legendText}>{myName}</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendSwatch, { backgroundColor: HL_BLUE }]} />
+              <View
+                style={[styles.legendSwatch, { backgroundColor: ownerTint.partner }]}
+              />
               <Text style={styles.legendText}>{partnerName}</Text>
             </View>
             <View style={styles.legendItem}>
@@ -490,7 +502,7 @@ export default function SharedCalendar({ navigation, route }) {
             <>
               <Text style={styles.eventsTitle}>이 달의 일정</Text>
               {monthEventList.map((ev) => {
-                const tint = OWNER_TINT[ev.owner] || HL_PINK;
+                const tint = ownerTint[ev.owner] || HL_PINK;
                 const ownerLabel =
                   ev.owner === 'me'
                     ? myName

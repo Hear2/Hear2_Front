@@ -8,13 +8,19 @@ import {
   Animated,
   ActivityIndicator,
   Alert,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
-import { requestJudge } from '../../api/judgeAPI';
+import { requestJudge, sendJudgeFeedback } from '../../api/judgeAPI';
 import { sendTextMessage } from '../../api/chatAPI';
 import { useAuth } from '../../contexts/AuthContext';
 import { givenName, replaceABWithNames } from '../../utils/name';
+import { resolveCoupleGenders } from '../../utils/gender';
+import { useToast } from '../../components/common/Toast';
 
 export default function AIJudgeModal({ navigation, route, onClose }) {
   const breathAnim = useRef(new Animated.Value(1)).current;
@@ -25,6 +31,25 @@ export default function AIJudgeModal({ navigation, route, onClose }) {
   const { user, partner } = useAuth();
   const myName = givenName(user?.nickname) || '나';
   const partnerName = givenName(partner?.nickname) || '상대';
+  // 입장 카드 색: 성별 기반(여=핑크, 남=블루). 모르면 기존 기본(나=핑크/상대=블루) 유지.
+  const { mine: myGender, partner: partnerGender } = resolveCoupleGenders(
+    user?.gender,
+    partner?.gender,
+  );
+  const personPalette = (gender, fallback) =>
+    gender === 'female'
+      ? { border: colors.pinkSoft, bg: colors.pinkTint }
+      : gender === 'male'
+        ? { border: colors.blueTint, bg: colors.blueTint }
+        : fallback;
+  const myPalette = personPalette(myGender, {
+    border: colors.pinkSoft,
+    bg: colors.pinkTint,
+  });
+  const partnerPalette = personPalette(partnerGender, {
+    border: colors.blueTint,
+    bg: colors.blueTint,
+  });
   const fixNames = useCallback(
     (t) => replaceABWithNames(t, myName, partnerName),
     [myName, partnerName],
@@ -34,6 +59,46 @@ export default function AIJudgeModal({ navigation, route, onClose }) {
   const [verdict, setVerdict] = useState(null);
   const [error, setError] = useState(null);
   const [sendingRecon, setSendingRecon] = useState(false);
+
+  const { showToast, toast } = useToast();
+  // 판결 피드백 상태
+  const [feedback, setFeedback] = useState(null); // { satisfied } 제출 완료 시
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [pendingSatisfied, setPendingSatisfied] = useState(null); // 모달에서 제출 대기 중인 satisfied
+  const [feedbackText, setFeedbackText] = useState('');
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+
+  // 서버가 이미 제출된 피드백을 내려주면 초기 상태로 반영
+  useEffect(() => {
+    if (verdict?.feedbackSubmitted) {
+      setFeedback({ satisfied: verdict.satisfied ?? null });
+    }
+  }, [verdict]);
+
+  const openFeedback = useCallback((satisfied) => {
+    setPendingSatisfied(satisfied);
+    setFeedbackText('');
+    setFeedbackModalOpen(true);
+  }, []);
+
+  const submitFeedback = useCallback(async () => {
+    if (submittingFeedback) return;
+    setSubmittingFeedback(true);
+    try {
+      await sendJudgeFeedback({
+        judgeHistoryId: verdict?.historyId,
+        satisfied: pendingSatisfied,
+        feedbackText: feedbackText.trim(),
+      });
+      setFeedback({ satisfied: pendingSatisfied });
+      setFeedbackModalOpen(false);
+      showToast('AI 판사 의견이 저장되었습니다.');
+    } catch (err) {
+      Alert.alert('전송 실패', err?.message || '잠시 후 다시 시도해주세요.');
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  }, [submittingFeedback, verdict, pendingSatisfied, feedbackText, showToast]);
 
   useEffect(() => {
     Animated.loop(
@@ -141,8 +206,12 @@ export default function AIJudgeModal({ navigation, route, onClose }) {
           <>
             {/* 양측 입장 카드 */}
             <View style={styles.cardsRow}>
-              <PersonCard label={myName} tone="me" body={fixNames(verdict.summaryA)} />
-              <PersonCard label={partnerName} tone="partner" body={fixNames(verdict.summaryB)} />
+              <PersonCard label={myName} palette={myPalette} body={fixNames(verdict.summaryA)} />
+              <PersonCard
+                label={partnerName}
+                palette={partnerPalette}
+                body={fixNames(verdict.summaryB)}
+              />
             </View>
 
             {/* 판결문 */}
@@ -166,6 +235,37 @@ export default function AIJudgeModal({ navigation, route, onClose }) {
                 </Text>
               )}
             </LinearGradient>
+
+            {/* 판결문 피드백 */}
+            <View style={styles.feedbackCard}>
+              {feedback ? (
+                <Text style={styles.feedbackDone}>
+                  {feedback.satisfied === false ? '의견 제출 완료' : '✓ 피드백 완료'}
+                </Text>
+              ) : (
+                <>
+                  <Text style={styles.feedbackQ}>이 내용이 마음에 드시나요?</Text>
+                  <View style={styles.feedbackBtnRow}>
+                    <TouchableOpacity
+                      style={[styles.feedbackBtn, styles.feedbackBtnYes]}
+                      activeOpacity={0.8}
+                      onPress={() => openFeedback(true)}
+                    >
+                      <Text style={[styles.feedbackBtnText, styles.feedbackBtnTextYes]}>
+                        네
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.feedbackBtn}
+                      activeOpacity={0.8}
+                      onPress={() => openFeedback(false)}
+                    >
+                      <Text style={styles.feedbackBtnText}>아니요</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
 
             {/* 화해 메시지 자동 전송 */}
             {!!verdict.reconciliationMessage && (
@@ -204,13 +304,63 @@ export default function AIJudgeModal({ navigation, route, onClose }) {
           </>
         )}
       </ScrollView>
+
+      {/* 추가 의견 입력 모달 */}
+      <Modal
+        visible={feedbackModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFeedbackModalOpen(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>AI 판결문이 도움이 되었나요?</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={feedbackText}
+              onChangeText={setFeedbackText}
+              placeholder={'추가 의견을 남겨주세요.\n(선택사항)'}
+              placeholderTextColor={colors.inkMute}
+              multiline
+              textAlignVertical="top"
+            />
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancel}
+                activeOpacity={0.7}
+                onPress={() => setFeedbackModalOpen(false)}
+                disabled={submittingFeedback}
+              >
+                <Text style={styles.modalCancelText}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSubmit}
+                activeOpacity={0.85}
+                onPress={submitFeedback}
+                disabled={submittingFeedback}
+              >
+                {submittingFeedback ? (
+                  <ActivityIndicator color={colors.bgApp} size="small" />
+                ) : (
+                  <Text style={styles.modalSubmitText}>보내기</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {toast}
     </LinearGradient>
   );
 }
 
-function PersonCard({ label, tone, body }) {
-  const borderColor = tone === 'me' ? colors.pinkSoft : colors.blueTint;
-  const bgColor = tone === 'me' ? colors.pinkTint : colors.blueTint;
+function PersonCard({ label, palette, body }) {
+  const borderColor = palette?.border || colors.line;
+  const bgColor = palette?.bg || colors.bgSoft;
   return (
     <View style={[styles.personCard, { borderColor }]}>
       <View style={[styles.personBadge, { backgroundColor: bgColor }]}>
@@ -295,6 +445,75 @@ const styles = StyleSheet.create({
   },
   reconLabel: { fontSize: 12, fontWeight: '700', color: colors.pink, marginBottom: 8 },
   reconBody: { fontSize: 14, color: colors.ink, lineHeight: 21, fontStyle: 'italic' },
+
+  // 판결 피드백
+  feedbackCard: {
+    backgroundColor: colors.bgSoft,
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  feedbackQ: { fontSize: 14, fontWeight: '600', color: colors.ink, marginBottom: 12 },
+  feedbackBtnRow: { flexDirection: 'row', gap: 10 },
+  feedbackBtn: {
+    minWidth: 84,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: colors.line,
+    backgroundColor: colors.bgApp,
+    alignItems: 'center',
+  },
+  feedbackBtnYes: { borderColor: colors.pink, backgroundColor: colors.pinkTint },
+  feedbackBtnText: { fontSize: 14, fontWeight: '700', color: colors.ink3 },
+  feedbackBtnTextYes: { color: colors.pinkDeep },
+  feedbackDone: { fontSize: 14, fontWeight: '700', color: colors.green },
+
+  // 추가 의견 입력 모달
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(30,33,82,0.45)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  modalSheet: {
+    backgroundColor: colors.bgApp,
+    borderRadius: 18,
+    padding: 20,
+  },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: colors.ink, marginBottom: 14 },
+  modalInput: {
+    minHeight: 96,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 14,
+    color: colors.ink,
+    backgroundColor: colors.bgInput,
+    lineHeight: 20,
+  },
+  modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  modalCancel: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: colors.line,
+    alignItems: 'center',
+  },
+  modalCancelText: { fontSize: 15, fontWeight: '600', color: colors.ink3 },
+  modalSubmit: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.pink,
+    alignItems: 'center',
+  },
+  modalSubmitText: { fontSize: 15, fontWeight: '700', color: colors.bgApp },
 
   ctaButton: { borderRadius: 14, overflow: 'hidden', marginBottom: 12 },
   ctaGradient: { paddingVertical: 16, alignItems: 'center' },

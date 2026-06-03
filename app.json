@@ -30,7 +30,7 @@
       ]
     },
     "ios": {
-      "bundleIdentifier": "com.hear2.app",
+      "bundleIdentifier": "com.ukhee.hear2",
       "infoPlist": {
         "CFBundleURLTypes": [
           {

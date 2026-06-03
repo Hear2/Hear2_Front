@@ -31,6 +31,7 @@ import {
   createQuickMemory,
   updateQuickMemory,
   deleteMemory as apiDeleteMemory,
+  fetchMemory,
 } from '../../api/memoryAPI';
 import { ApiError } from '../../api/client';
 
@@ -87,6 +88,39 @@ const PLACEHOLDER_LIBRARY = [
 
 // label("#봄") → 슬러그("봄"). BE는 # 없이 받음.
 const stripHash = (s) => (s || '').replace(/^#+/, '').trim();
+
+// MemoryResponse(앨범/상세)에서 AI 태그 추출. 태그 분류 기준은 photos[].aiTags 우선,
+// 없으면 게시글 레벨 aiTags(호환용). 중복 제거 + # 제거.
+function extractAiTagsFromMemory(mem) {
+  if (!mem) return [];
+  const fromPhotos = Array.isArray(mem.photos)
+    ? mem.photos.flatMap((p) => (Array.isArray(p?.aiTags) ? p.aiTags : []))
+    : [];
+  const raw = fromPhotos.length
+    ? fromPhotos
+    : Array.isArray(mem.aiTags)
+      ? mem.aiTags
+      : [];
+  const seen = new Set();
+  const out = [];
+  for (const t of raw) {
+    const s = stripHash(t);
+    if (s && !seen.has(s)) {
+      seen.add(s);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+// 메모리의 AI 분석 상태 — 게시글 레벨 우선, 없으면 첫 사진 기준.
+function aiStatusOf(mem) {
+  return (
+    mem?.aiAnalysisStatus ||
+    (Array.isArray(mem?.photos) ? mem.photos[0]?.aiAnalysisStatus : null) ||
+    null
+  );
+}
 
 // expo-media-library asset → 우리 library 아이템.
 // MediaLibrary.Asset에는 EXIF GPS가 location.{latitude,longitude}로 노출됨 (권한 있을 때).
@@ -416,7 +450,6 @@ export default function PhotoUpload({ navigation }) {
     TAG_OPTIONS.filter((t) => t.defaultOn).map((t) => t.label),
   );
   const [mood, setMood] = useState('love');
-  const [shareWithPartner, setShareWithPartner] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
   // photoId → BE MemoryQuickResponse 캐시
@@ -425,6 +458,9 @@ export default function PhotoUpload({ navigation }) {
   const draftsRef = useRef({});
   // 저장 성공 시 true — cleanup 단계에서 미삭제로 처리
   const savedRef = useRef(false);
+  // 화면 이탈(취소/뒤로) 표시. 진행 중이던 draft 생성이 이탈 후 완료되면
+  // 그 메모리를 즉시 삭제해 앨범에 고아("미지정") 카드가 남지 않게 한다.
+  const cancelledRef = useRef(false);
   // 사용자가 위치명을 직접 수정했는지. true면 AI 자동 위치명으로 덮어쓰지 않는다.
   const placeEditedRef = useRef(false);
   // place의 최신값을 콜백(stale 클로저)에서 읽기 위한 mirror ref.
@@ -432,6 +468,10 @@ export default function PhotoUpload({ navigation }) {
   useEffect(() => {
     placeRef.current = place;
   }, [place]);
+  // 비동기 AI 태그 폴링 취소 토큰. 새 폴링/언마운트 시 이전 폴링을 취소한다.
+  const pollTokenRef = useRef(null);
+  // 사용자가 태그를 직접 건드렸는지. true면 늦게 도착한 AI 폴링 결과로 덮어쓰지 않는다.
+  const tagsEditedRef = useRef(false);
 
   // 표시할 칩 목록 = tagSlugs 그대로 (AI 도착 시 통째로 교체되므로 추가 머지 불필요)
   const allTagSlugs = tagSlugs;
@@ -472,6 +512,59 @@ export default function PhotoUpload({ navigation }) {
     setTagSlugs(aiTagSlugs);
     setActiveTagSlugs(aiTagSlugs);
   }, []);
+
+  // BE가 AI 비전 분석을 비동기로 돌리므로(생성 응답의 aiTags는 빈 배열),
+  // 생성된 메모리를 폴링해 분석이 끝나면(COMPLETED/태그 도착) 칩을 갱신한다.
+  // FAILED/타임아웃이면 빈 상태로 두고 스피너만 끈다. token.cancelled로 취소 가능.
+  const pollMemoryTags = useCallback(async (memoryId, token) => {
+    const MAX_MS = 40000;
+    const INTERVAL_MS = 2000;
+    const startedAt = Date.now();
+    while (!token.cancelled && Date.now() - startedAt < MAX_MS) {
+      await new Promise((r) => setTimeout(r, INTERVAL_MS));
+      if (token.cancelled) return;
+      let mem = null;
+      try {
+        mem = await fetchMemory(memoryId);
+      } catch (e) {
+        // 일시 오류/아직 조회 불가면 재시도
+        continue;
+      }
+      if (token.cancelled) return;
+      const status = aiStatusOf(mem);
+      const tags = extractAiTagsFromMemory(mem);
+      if (tags.length > 0 || status === 'COMPLETED') {
+        // 사용자가 그 사이 태그를 직접 건드렸으면 덮어쓰지 않음
+        if (!tagsEditedRef.current) {
+          setTagSlugs(tags);
+          setActiveTagSlugs(tags);
+        }
+        setAnalyzing(false);
+        return;
+      }
+      if (status === 'FAILED') {
+        setAnalyzing(false);
+        return;
+      }
+    }
+    if (!token.cancelled) setAnalyzing(false);
+  }, []);
+
+  // 첫 사진 draft에 대해 폴링 시작(이전 폴링은 취소).
+  const startTagPolling = useCallback(
+    (memoryId) => {
+      if (!memoryId) {
+        setAnalyzing(false);
+        return;
+      }
+      if (pollTokenRef.current) pollTokenRef.current.cancelled = true;
+      const token = { cancelled: false };
+      pollTokenRef.current = token;
+      setAnalyzing(true);
+      pollMemoryTags(memoryId, token);
+    },
+    [pollMemoryTags],
+  );
 
   // 사용자가 LocationPicker(검색/직접입력)로 위치명을 고르면 호출.
   // 이후 AI 자동 위치명이 덮어쓰지 않도록 placeEditedRef를 세운다.
@@ -567,6 +660,11 @@ export default function PhotoUpload({ navigation }) {
           // 동기 AI 분석이 30초 근처로 느릴 때 대비해 여유 부여.
           timeoutMs: 60000,
         });
+        // 사용자가 이미 화면을 떠났으면(저장 안 함) 방금 만든 draft를 즉시 삭제하고 버린다.
+        if (cancelledRef.current) {
+          if (created?.id != null) apiDeleteMemory(created.id).catch(() => {});
+          return null;
+        }
         // draft = 생성 응답(자동채움용 aiTags/aiPlace/aiTime 포함) + 묶음 생성에 필요한 EXIF/미리보기 uri.
         // 저장 시 미리보기 메모리를 삭제하면 그 objectKey의 R2 객체도 함께 지워지므로(BE deleteMemory),
         // 묶음 메모리엔 이 objectKey를 재사용하지 않고 jpeg를 새 키로 다시 올린다. → 재업로드용 jpeg 정보 보관.
@@ -587,16 +685,27 @@ export default function PhotoUpload({ navigation }) {
           draftsRef.current = next;
           return next;
         });
-        if (isFirst) applyAutoFillFromDraft(draft);
+        if (isFirst) {
+          applyAutoFillFromDraft(draft);
+          // 생성 응답에 이미 태그가 있으면(구버전 동기 BE) 그대로 사용, 스피너 끔.
+          // 비어 있으면(신버전 비동기 BE) 백그라운드 분석 결과를 폴링.
+          const immediateTags = Array.isArray(created?.aiTags)
+            ? created.aiTags.map(stripHash).filter(Boolean)
+            : [];
+          if (immediateTags.length > 0) {
+            setAnalyzing(false);
+          } else {
+            startTagPolling(draft.id);
+          }
+        }
         return draft;
       } catch (e) {
         // 개별 draft 실패는 사용자에게 별도 안내 안 함 (저장 시점에 재시도됨)
-        return null;
-      } finally {
         if (isFirst) setAnalyzing(false);
+        return null;
       }
     },
-    [applyAutoFillFromDraft],
+    [applyAutoFillFromDraft, startTagPolling],
   );
 
   // 갤러리/카메라 결과를 공통으로 흡수
@@ -692,7 +801,8 @@ export default function PhotoUpload({ navigation }) {
         mood: MOOD_TO_GROUP[mood] ?? 'love',
         title: title.trim(),
         memo: memo.trim(),
-        shared: shareWithPartner,
+        // 커플 앱 원칙: 업로드하면 두 사람 앨범에 자동 공유
+        shared: true,
         createdAt: Date.now(),
       });
       navigation?.goBack?.();
@@ -782,7 +892,8 @@ export default function PhotoUpload({ navigation }) {
         mood: MOOD_TO_GROUP[mood] ?? 'love',
         title: title.trim(),
         memo: memo.trim(),
-        shared: shareWithPartner,
+        // 커플 앱 원칙: 업로드하면 두 사람 앨범에 자동 공유
+        shared: true,
         createdAt: Date.now(),
         backendId: created?.id,
       });
@@ -840,6 +951,7 @@ export default function PhotoUpload({ navigation }) {
   );
 
   const toggleTag = (slug) => {
+    tagsEditedRef.current = true;
     setActiveTagSlugs((prev) =>
       prev.includes(slug) ? prev.filter((t) => t !== slug) : [...prev, slug],
     );
@@ -882,20 +994,23 @@ export default function PhotoUpload({ navigation }) {
   // 저장하지 않은 미리보기 draft 메모리 정리 (취소/뒤로/unmount 시 orphan 방지).
   const cleanupUnsavedDrafts = useCallback(() => {
     if (savedRef.current) return; // 저장 완료 → 정리 안 함
+    // 진행 중인 draft 생성도 취소 표시 — 완료 시점에 createDraftForPhoto가 즉시 삭제한다.
+    cancelledRef.current = true;
     const ids = Object.values(draftsRef.current).map((d) => d?.id).filter(Boolean);
-    if (ids.length === 0) return;
-    // best-effort, 결과 무시
-    ids.forEach((id) => {
-      apiDeleteMemory(id).catch(() => {});
-    });
     // 호출 후 클리어해서 중복 호출 방지
     draftsRef.current = {};
     savedRef.current = true;
-  }, []);
+    if (ids.length === 0) return;
+    // 삭제 완료 후 앨범을 동기화해서 "미지정" 잔상 카드가 남지 않게 한다.
+    Promise.allSettled(ids.map((id) => apiDeleteMemory(id))).then(() => {
+      refresh?.().catch(() => {});
+    });
+  }, [refresh]);
 
   // unmount 시 정리
   useEffect(() => {
     return () => {
+      if (pollTokenRef.current) pollTokenRef.current.cancelled = true;
       cleanupUnsavedDrafts();
     };
   }, [cleanupUnsavedDrafts]);
@@ -1166,31 +1281,6 @@ export default function PhotoUpload({ navigation }) {
             </View>
           </View>
 
-          {/* Share with partner */}
-          <View style={styles.shareCard}>
-            <Text style={styles.shareHeart}>♥</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.shareTitle}>
-                <Text style={{ fontWeight: '800' }}>지호</Text>에게 공유하기
-              </Text>
-              <Text style={styles.shareSub}>저장하면 우리 둘 모두의 앨범에 추가돼요</Text>
-            </View>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => setShareWithPartner((v) => !v)}
-              style={[
-                styles.toggle,
-                shareWithPartner ? styles.toggleOn : styles.toggleOff,
-              ]}
-            >
-              <View
-                style={[
-                  styles.toggleKnob,
-                  shareWithPartner ? styles.toggleKnobOn : styles.toggleKnobOff,
-                ]}
-              />
-            </TouchableOpacity>
-          </View>
         </ScrollView>
 
         {/* Save bar */}
@@ -1484,34 +1574,6 @@ const styles = StyleSheet.create({
   moodEmoji: { fontSize: 22 },
   moodLabel: { fontSize: 10, color: '#888', fontWeight: '500' },
   moodLabelOn: { color: colors.pinkDeep, fontWeight: '700' },
-
-  shareCard: {
-    marginTop: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: '#FFF5F8',
-    borderWidth: 1,
-    borderColor: '#FFD0E0',
-  },
-  shareHeart: { fontSize: 18, color: colors.heartRed },
-  shareTitle: { fontSize: 12, color: colors.ink },
-  shareSub: { fontSize: 10, color: '#888', marginTop: 2 },
-  toggle: {
-    width: 36,
-    height: 22,
-    borderRadius: 11,
-    justifyContent: 'center',
-    paddingHorizontal: 2,
-  },
-  toggleOn: { backgroundColor: colors.heartRed },
-  toggleOff: { backgroundColor: '#E0E0E0' },
-  toggleKnob: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff' },
-  toggleKnobOn: { alignSelf: 'flex-end' },
-  toggleKnobOff: { alignSelf: 'flex-start' },
 
   saveBar: {
     flexDirection: 'row',

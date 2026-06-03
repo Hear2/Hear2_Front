@@ -138,8 +138,9 @@ export default function PhotoDetailScreen({ navigation, route }) {
       const tags = [...new Set([...userTagSlugs, ...aiTagSlugs])];
 
       return {
-        title: (detail.memo || '').split('\n')[0] || '제목 없는 추억',
-        memo: (detail.memo || '').split('\n').slice(1).join('\n') || detail.memo || '',
+        // BE 규약: memo 첫 줄 = 제목, 나머지 줄 = 메모 본문 (title input → note 요청 → memo 응답)
+        title: (detail.memo || '').split('\n')[0].trim() || '제목 없는 추억',
+        memo: (detail.memo || '').split('\n').slice(1).join('\n').trim(),
         // 대표사진: photoUrl 우선, 없으면 photos[0].url.
         photoUrl: detail.photoUrl || rawPhotos[0]?.url || null,
         photos,
@@ -214,7 +215,8 @@ export default function PhotoDetailScreen({ navigation, route }) {
   const uploaderName = isMyUpload
     ? givenName(user?.nickname) || '나'
     : givenName(partner?.nickname) || '파트너';
-  const uploaderAvatarUrl = isMyUpload ? user?.profileImage : null;
+  // 상대 업로드면 커플상태의 partner.profileImage 사용 (BE가 URL로 resolve해 내려줌)
+  const uploaderAvatarUrl = isMyUpload ? user?.profileImage : partner?.profileImage ?? null;
 
   const goBack = () => navigation?.goBack?.();
 

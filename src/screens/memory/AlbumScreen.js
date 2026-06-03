@@ -351,6 +351,12 @@ const FeedGrid = ({ items, onPick, selectionMode, selectedIds, token }) => {
           colors={['transparent', 'rgba(0,0,0,0.45)']}
           style={styles.feedFade}
         >
+          {/* 제목(=BE memo 첫 줄)이 있으면 위치·날짜 위에 표시 */}
+          {!!m.title && (
+            <Text style={styles.feedTitle} numberOfLines={1}>
+              {m.title}
+            </Text>
+          )}
           <Text style={styles.feedMeta}>{m.place} · {m.date}</Text>
         </LinearGradient>
         {selectionMode && (
@@ -669,6 +675,12 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingHorizontal: 10,
     paddingBottom: 8,
+  },
+  feedTitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 2,
   },
   feedMeta: {
     color: '#FFFFFF',

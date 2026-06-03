@@ -45,3 +45,21 @@ export function fetchJudgeHistories() {
 export function fetchConflictPatterns() {
   return get(endpoints.judge.patterns);
 }
+
+// 판결문 피드백. satisfied=true(네)/false(아니요), feedbackText는 선택.
+// 한 번만 제출, 재제출은 update 개념.
+// 반환(예시): { feedbackSubmitted: boolean, satisfied: boolean }
+export function sendJudgeFeedback({ judgeHistoryId, satisfied, feedbackText } = {}) {
+  if (endpoints.MOCK) {
+    return new Promise((resolve) =>
+      setTimeout(
+        () => resolve({ feedbackSubmitted: true, satisfied, feedbackText }),
+        300,
+      ),
+    );
+  }
+  return post(endpoints.judge.feedback(judgeHistoryId), {
+    satisfied,
+    feedbackText,
+  });
+}

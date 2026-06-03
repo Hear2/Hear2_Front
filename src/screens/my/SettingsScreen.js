@@ -13,6 +13,7 @@ import Header from '../../components/common/Header';
 import Heart from '../../components/common/Heart';
 import { useCouple } from '../../contexts/CoupleContext';
 import { useAuth } from '../../contexts/AuthContext';
+import Avatar from '../../components/common/Avatar';
 import { daysTogether } from '../../utils/dday';
 
 const Toggle = ({ on, onPress }) => (
@@ -131,9 +132,13 @@ const SettingsScreen = ({ navigation }) => {
           end={{ x: 1, y: 1 }}
           style={styles.profileCard}
         >
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{nickname.charAt(0)}</Text>
-          </View>
+          <Avatar
+            uri={user?.profileImage}
+            name={nickname}
+            size={52}
+            bg="#FFFFFF"
+            textColor={colors.pinkDeep}
+          />
           <View style={{ flex: 1 }}>
             <Text style={styles.profileName}>{nickname}</Text>
             <Text style={styles.profileSub}>{profileSub}</Text>

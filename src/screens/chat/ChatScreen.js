@@ -18,14 +18,17 @@ import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
 import { givenName } from '../../utils/name';
 import Chip from '../../components/common/Chip';
+import Avatar from '../../components/common/Avatar';
 import endpoints from '../../constants/endpoints';
 import {
   fetchMessages,
+  sendEmotionFeedback,
   sendMediaMessage,
   sendTextMessage,
   uploadChatMedia,
 } from '../../api/chatAPI';
 import { useAuth } from '../../contexts/AuthContext';
+import { useToast } from '../../components/common/Toast';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -95,8 +98,30 @@ const ChatScreen = ({ navigation }) => {
   const [previewUrl, setPreviewUrl] = useState(null); // 이미지 풀스크린 미리보기
   // 위험 메시지 인앱 배너
   const [riskBanner, setRiskBanner] = useState(null); // { msg } | null
+  // 감정분석 피드백: { [messageId]: true(맞아요) | false(아니에요) } — 낙관적 로컬 상태
+  const [emotionFb, setEmotionFb] = useState({});
   // 이미 알림을 띄운 judgeAvailable 메시지 id들 (중복 방지)
   const notifiedIdsRef = useRef(new Set());
+  const { showToast, toast } = useToast();
+
+  // 감정분석 맞아요/아니에요 제출. 낙관적으로 즉시 반영하고, 실패 시 롤백.
+  const handleEmotionFeedback = useCallback(
+    async (messageId, isCorrect) => {
+      setEmotionFb((prev) => ({ ...prev, [messageId]: isCorrect }));
+      try {
+        await sendEmotionFeedback({ messageId, isCorrect });
+        showToast('감정 분석 피드백이 저장되었습니다.');
+      } catch (err) {
+        setEmotionFb((prev) => {
+          const next = { ...prev };
+          delete next[messageId];
+          return next;
+        });
+        showToast(err?.message || '피드백 저장에 실패했어요.');
+      }
+    },
+    [showToast],
+  );
 
   const scrollRef = useRef(null);
   const pollRef = useRef(null);
@@ -272,9 +297,11 @@ const ChatScreen = ({ navigation }) => {
       <View style={styles.header}>
         <View style={styles.headerProfile}>
           <View style={styles.avatarWrap}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>예</Text>
-            </View>
+            <Avatar
+              uri={partner?.profileImage}
+              name={partner?.nickname}
+              size={36}
+            />
             <View style={styles.onlineDot} />
           </View>
           <View style={styles.headerInfo}>
@@ -365,15 +392,23 @@ const ChatScreen = ({ navigation }) => {
                 const isImage = msg.messageType === 'IMAGE';
                 const isVideo = msg.messageType === 'VIDEO';
                 const mediaSrc = absoluteMediaUrl(msg.mediaUrl);
+                // 감정분석 피드백 상태: 로컬(낙관적) 우선, 없으면 서버값(emotionFeedback)
+                const emotionFbValue =
+                  emotionFb[msg.id] !== undefined
+                    ? emotionFb[msg.id]
+                    : msg.emotionFeedback ?? null;
                 return (
                   <View
                     key={msg.id}
                     style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem]}
                   >
                     {!isMe && (
-                      <View style={styles.msgAvatar}>
-                        <Text style={styles.msgAvatarText}>지</Text>
-                      </View>
+                      <Avatar
+                        uri={partner?.profileImage}
+                        name={partner?.nickname}
+                        size={32}
+                        style={styles.msgAvatar}
+                      />
                     )}
                     <View style={styles.msgGroup}>
                       {isImage && mediaSrc ? (
@@ -435,6 +470,42 @@ const ChatScreen = ({ navigation }) => {
                         )}
                         <Text style={styles.timeText}>{formatHHMM(msg.createdAt)}</Text>
                       </View>
+
+                      {/* 감정분석 피드백: 감정 이모티콘이 붙은 메시지에만 노출 */}
+                      {!!mood && (
+                        <View
+                          style={[
+                            styles.emotionFbRow,
+                            isMe && { alignSelf: 'flex-end' },
+                          ]}
+                        >
+                          {emotionFbValue != null ? (
+                            <Text style={styles.emotionFbDone}>
+                              {emotionFbValue
+                                ? '✓ 분석이 맞다고 알려줬어요'
+                                : '✓ 분석이 틀리다고 알려줬어요'}
+                            </Text>
+                          ) : (
+                            <>
+                              <Text style={styles.emotionFbAsk}>이 감정 분석 맞나요?</Text>
+                              <TouchableOpacity
+                                style={styles.emotionFbBtn}
+                                activeOpacity={0.7}
+                                onPress={() => handleEmotionFeedback(msg.id, true)}
+                              >
+                                <Text style={styles.emotionFbBtnText}>맞아요</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={styles.emotionFbBtn}
+                                activeOpacity={0.7}
+                                onPress={() => handleEmotionFeedback(msg.id, false)}
+                              >
+                                <Text style={styles.emotionFbBtnText}>아니에요</Text>
+                              </TouchableOpacity>
+                            </>
+                          )}
+                        </View>
+                      )}
                     </View>
                   </View>
                 );
@@ -513,6 +584,8 @@ const ChatScreen = ({ navigation }) => {
           )}
         </TouchableOpacity>
       </Modal>
+
+      {toast}
     </View>
   );
 };
@@ -658,10 +731,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   bubbleThem: {
+    alignSelf: 'flex-start',
     backgroundColor: colors.bgSoft,
     borderTopLeftRadius: 4,
   },
   bubbleMe: {
+    alignSelf: 'flex-end',
     backgroundColor: colors.pink,
     borderTopRightRadius: 4,
   },
@@ -741,6 +816,36 @@ const styles = StyleSheet.create({
   moodChipText: {
     fontSize: 11,
     fontWeight: '600',
+  },
+  // 감정분석 피드백
+  emotionFbRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+  },
+  emotionFbAsk: {
+    fontSize: 11,
+    color: colors.inkMute,
+  },
+  emotionFbBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.bgApp,
+  },
+  emotionFbBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.ink3,
+  },
+  emotionFbDone: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.green,
   },
   // Warning Banner
   warningBanner: {

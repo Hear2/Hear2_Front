@@ -37,6 +37,11 @@ export default {
     passwordResetConfirm: `${BASE_URL}/api/v1/auth/password-reset/confirm`,
   },
 
+  // 사용자 프로필. PATCH /api/v1/users/me — 변경할 필드만 전달. 생 MeResponse 반환.
+  users: {
+    me: `${BASE_URL}/api/v1/users/me`,
+  },
+
   // 리포트: ApiResponse<T> 래핑
   reports: {
     forCouple: (coupleId) =>
@@ -59,6 +64,9 @@ export default {
   chat: {
     messages: `${BASE_URL}/api/v1/chats/messages`,
     media: `${BASE_URL}/api/v1/chats/media`,
+    // 감정분석 피드백: { isCorrect: boolean }
+    emotionFeedback: (messageId) =>
+      `${BASE_URL}/api/v1/chats/messages/${messageId}/emotion-feedback`,
     // WebSocket(STOMP): 엔드포인트 /ws, pub /pub/chats/messages, sub /sub/chats/couples/{id}
     ws: `${WS_URL}/ws`,
   },
@@ -105,6 +113,16 @@ export default {
     connect: `${BASE_URL}/couple/connect`,
     location: `${BASE_URL}/couple/location`,
   },
+
+  // 위치 공유 (커플 간 실시간). ⚠️ ApiResponse<T> 래핑.
+  //  POST /api/v1/location           내 위치 업로드 { lat, lng, accuracy?, capturedAt? }
+  //  GET  /api/v1/couple/location    양쪽 위치 { me, partner } (상대 OFF면 partner=null, 내가 OFF면 403)
+  //  PUT  /api/v1/location/sharing   공유 ON/OFF { enabled }
+  location: {
+    update: `${BASE_URL}/api/v1/location`,
+    couple: `${BASE_URL}/api/v1/couple/location`,
+    sharing: `${BASE_URL}/api/v1/location/sharing`,
+  },
   ai: {
     emotion: `${AI_URL}/emotion`,
     judge: `${AI_URL}/judge`,
@@ -119,6 +137,9 @@ export default {
     invoke: `${BASE_URL}/api/v1/judge`,
     histories: `${BASE_URL}/api/v1/judge/histories`,
     patterns: `${BASE_URL}/api/v1/judge/patterns`,
+    // 판결 피드백: { satisfied: boolean, feedbackText?: string }
+    feedback: (judgeHistoryId) =>
+      `${BASE_URL}/api/v1/judge/${judgeHistoryId}/feedback`,
   },
 
   // 데일리 Q&A (1일1답, 실 BE). ApiResponse 래핑 없이 생 DTO 반환.

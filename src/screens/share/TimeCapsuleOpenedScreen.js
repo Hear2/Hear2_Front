@@ -11,6 +11,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
+import { useAuth } from '../../contexts/AuthContext';
+import { givenName } from '../../utils/name';
 import { shareOrSaveScreenshot } from '../../utils/screenShare';
 
 const CONFETTI = [
@@ -55,7 +57,7 @@ const ConfettiSparkle = ({ left, top, size, color, delay, glyph }) => {
   );
 };
 
-const ContentsLetter = () => (
+const ContentsLetter = ({ signature }) => (
   <View style={styles.contentCard}>
     <View style={styles.letterHeader}>
       <Text style={styles.letterLead}>💌 1년 전 우리가 쓴 편지</Text>
@@ -71,7 +73,7 @@ const ContentsLetter = () => (
       <Text style={styles.letterText}>
         지금 이 순간이 너무 행복해서 1년 뒤에도 기억하고 싶어 봉인해. 작은 카페에서 우연히 만난 너에게,
         우리가 1년 후에도 여전히 같이 있길.{'\n\n'}
-        <Text style={styles.letterSign}>— 2025.05.16, 예진</Text>
+        <Text style={styles.letterSign}>— 2025.05.16, {signature}</Text>
       </Text>
     </LinearGradient>
   </View>
@@ -139,6 +141,12 @@ const TimeCapsuleOpenedScreen = ({ navigation }) => {
   const breathe = useRef(new Animated.Value(1)).current;
   const shotRef = useRef(null); // 화면 캡처용 ref
 
+  // 편지 서명 — 두 사람의 실제 이름(성 제외)으로 표시
+  const { user, partner } = useAuth();
+  const myName = givenName(user?.nickname) || '나';
+  const partnerName = givenName(partner?.nickname) || '연인';
+  const signature = `${myName} & ${partnerName}`;
+
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -193,7 +201,7 @@ const TimeCapsuleOpenedScreen = ({ navigation }) => {
           </View>
         </View>
 
-        <ContentsLetter />
+        <ContentsLetter signature={signature} />
         <Photos />
         <NowVsThen />
 

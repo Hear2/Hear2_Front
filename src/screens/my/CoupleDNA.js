@@ -15,9 +15,17 @@ import Header from '../../components/common/Header';
 import endpoints from '../../constants/endpoints';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCoupleDna } from '../../api/dnaAPI';
+import { givenName } from '../../utils/name';
+import { resolveCoupleGenders, genderColor } from '../../utils/gender';
 import { shareOrSaveScreenshot } from '../../utils/screenShare';
 
-// MOCK 응답 — endpoints.MOCK === true일 때 사용. 백엔드 schema 그대로.
+// 커플 DNA는 수개월치 대화·추억 데이터가 쌓여야 의미 있는 분석이 나오는 영역이라,
+// 시연/데모에서는 BE 호출 없이 아래 목업 결과를 고정으로 보여준다(AI판사 목업과 같은 패턴).
+// 이름이 쓰이는 자리(userAName/userBName)만 실제 사용자 이름(성 제외)으로 채운다.
+// 실데이터 분석이 준비되면 false로 바꾸면 기존 BE 흐름이 그대로 동작한다.
+const USE_MOCK_DNA = true;
+
+// MOCK 응답 — USE_MOCK_DNA 또는 endpoints.MOCK === true일 때 사용. 백엔드 schema 그대로.
 const MOCK_DNA = {
   dnaTitle: '감정형 탐험가 커플',
   dnaDescription: '서로의 감정을 잘 읽고, 분위기를 따뜻하게 이어가는 편이에요.',
@@ -70,9 +78,18 @@ function isSparseDna(data) {
 }
 
 export default function CoupleDNA({ navigation, route }) {
-  const { user, refreshCoupleStatus } = useAuth();
+  const { user, partner, refreshCoupleStatus } = useAuth();
   const coupleId = route?.params?.coupleId ?? user?.coupleId ?? null;
   const anchorDate = route?.params?.anchorDate;
+
+  // USER_A = 나, USER_B = 상대. 성을 뗀 이름으로 표시(예: 황욱자 → 욱자).
+  const myName = givenName(user?.nickname) || '나';
+  const partnerName = givenName(partner?.nickname) || '연인';
+  // 성별 기반 컬러(남=블루, 여=핑크). 상대 성별은 BE에 없으면 내 성별의 반대로 추정.
+  const { mine: myGender, partner: partnerGender } = resolveCoupleGenders(
+    user?.gender,
+    partner?.gender,
+  );
 
   const [dna, setDna] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -86,9 +103,33 @@ export default function CoupleDNA({ navigation, route }) {
       setLoading(true);
       setError(null);
       try {
-        if (endpoints.MOCK) {
+        if (USE_MOCK_DNA || endpoints.MOCK) {
           await new Promise((r) => setTimeout(r, 400));
-          setDna(MOCK_DNA);
+          // 목업 결과에 실제 두 사람 이름 + 성별 컬러(남=블루, 여=핑크) 주입
+          const DNA_MALE = '#5B93FF';
+          const DNA_FEMALE = '#FF6EA8';
+          const myColor = genderColor(myGender, {
+            male: DNA_MALE,
+            female: DNA_FEMALE,
+            fallback: MOCK_DNA.shareCard.userCards[0].accentColor,
+          });
+          const partnerColor = genderColor(partnerGender, {
+            male: DNA_MALE,
+            female: DNA_FEMALE,
+            fallback: MOCK_DNA.shareCard.userCards[1].accentColor,
+          });
+          setDna({
+            ...MOCK_DNA,
+            userAName: myName,
+            userBName: partnerName,
+            shareCard: {
+              ...MOCK_DNA.shareCard,
+              userCards: [
+                { ...MOCK_DNA.shareCard.userCards[0], accentColor: myColor },
+                { ...MOCK_DNA.shareCard.userCards[1], accentColor: partnerColor },
+              ],
+            },
+          });
           return;
         }
         // user.coupleId가 비어 있으면(부팅 시 status 동기화 실패 등) /couples/status로 재조회.
@@ -110,7 +151,7 @@ export default function CoupleDNA({ navigation, route }) {
         setLoading(false);
       }
     },
-    [coupleId, anchorDate, refreshCoupleStatus],
+    [coupleId, anchorDate, refreshCoupleStatus, myName, partnerName, myGender, partnerGender],
   );
 
   useEffect(() => {

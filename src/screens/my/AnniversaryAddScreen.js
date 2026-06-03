@@ -90,7 +90,6 @@ export default function AnniversaryAddScreen({ navigation, route }) {
     return i >= 0 ? i : 0;
   });
   const [repeatYearly, setRepeatYearly] = useState(true);
-  const [shareWithPartner, setShareWithPartner] = useState(true);
   const [reminders, setReminders] = useState({ '7d': true, '3d': false, '1d': true, '0d': true });
 
   const [year, setYear] = useState(initDate ? initDate[0] : today.getFullYear());
@@ -150,7 +149,8 @@ export default function AnniversaryAddScreen({ navigation, route }) {
       icon: ICONS[iconIdx],
       color: COLOR_SWATCHES[colorIdx],
       repeatYearly,
-      shareWithPartner,
+      // 커플 앱 원칙: 기념일은 두 사람 모두에게 자동 공유
+      shareWithPartner: true,
       reminders,
     });
     navigation?.goBack();
@@ -402,26 +402,6 @@ export default function AnniversaryAddScreen({ navigation, route }) {
               </View>
             </View>
           </View>
-        </View>
-
-        {/* Share with partner */}
-        <View style={styles.shareCard}>
-          <Heart size={16} color={colors.heartRed} pulse />
-          <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text style={styles.shareText}>
-              <Text style={{ fontWeight: '800' }}>연인</Text>과 함께 기념해요
-            </Text>
-            <Text style={styles.shareSub}>
-              두 사람 모두에게 D-DAY가 표시돼요
-            </Text>
-          </View>
-          <Switch
-            value={shareWithPartner}
-            onValueChange={setShareWithPartner}
-            trackColor={{ false: '#E5E5E5', true: colors.heartRed }}
-            thumbColor="#FFFFFF"
-            ios_backgroundColor="#E5E5E5"
-          />
         </View>
 
         <View style={{ height: 24 }} />
@@ -682,21 +662,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
   },
   remindChipText: { fontSize: 11, fontWeight: '700', color: '#999' },
-
-  // Share card
-  shareCard: {
-    marginTop: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: '#FFF5F8',
-    borderWidth: 1,
-    borderColor: '#FFD0E0',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  shareText: { fontSize: 12, color: colors.ink },
-  shareSub: { fontSize: 10, color: '#888', marginTop: 2 },
 
   // CTA
   ctaBar: {

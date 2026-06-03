@@ -123,15 +123,33 @@ export async function uploadCapsulePhotos(photos) {
   return keys;
 }
 
+// 데모용 "열린 캡슐" 목업 1개 — 실모드에서도 항상 open 목록에 포함시킨다.
+// (열린 캡슐 연출은 1년치 데이터가 있어야 자연스러워서, AI판사/커플DNA 목업과 같은 패턴.
+//  날짜는 TimeCapsuleOpenedScreen의 봉인/오픈 표기(2025.05.16 → 2026.05.16)와 맞춰둠.)
+const MOCK_OPEN_CAPSULE = {
+  id: 'mock-open-1',
+  name: '1주년 기념 캡슐',
+  status: 'OPEN',
+  coverStyle: 'LETTER',
+  sealedAt: '2025-05-16T00:00:00',
+  openAt: '2026-05-16T00:00:00',
+  openedAt: '2026-05-16T00:00:00',
+  dDay: 0,
+};
+
 // 커플 타임캡슐 목록 조회. → { sealed:[], open:[] } (화면용으로 shape)
+// open 목록엔 데모용 열린 캡슐 목업을 항상 1개 포함한다.
 export function fetchCapsules(status = 'all') {
   if (endpoints.MOCK) return Promise.resolve(buildMockList());
   return getUnwrapped(`${endpoints.timeCapsule.list}?status=${encodeURIComponent(status)}`)
     .then((res) => ({
       sealed: (res?.sealed ?? []).map(shapeSummary),
-      open: (res?.open ?? []).map(shapeSummary),
+      open: [
+        ...(res?.open ?? []).map(shapeSummary),
+        shapeSummary(MOCK_OPEN_CAPSULE),
+      ],
     }))
-    .catch(() => ({ sealed: [], open: [] }));
+    .catch(() => ({ sealed: [], open: [shapeSummary(MOCK_OPEN_CAPSULE)] }));
 }
 
 // 타임캡슐 상세 조회. sealed면 letter/photos/thenVsNow/shareCard는 null/[].
