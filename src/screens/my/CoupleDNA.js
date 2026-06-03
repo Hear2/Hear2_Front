@@ -7,8 +7,6 @@ import {
   StyleSheet,
   Animated,
   ActivityIndicator,
-  Alert,
-  Share,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../../constants/colors';
@@ -17,6 +15,7 @@ import Header from '../../components/common/Header';
 import endpoints from '../../constants/endpoints';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCoupleDna } from '../../api/dnaAPI';
+import { shareOrSaveScreenshot } from '../../utils/screenShare';
 
 // MOCK 응답 — endpoints.MOCK === true일 때 사용. 백엔드 schema 그대로.
 const MOCK_DNA = {
@@ -80,6 +79,7 @@ export default function CoupleDNA({ navigation, route }) {
   const [error, setError] = useState(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const shotRef = useRef(null); // 화면 캡처용 ref
 
   const fetchDna = useCallback(
     async (signal) => {
@@ -126,21 +126,13 @@ export default function CoupleDNA({ navigation, route }) {
     }
   }, [loading, error, dna, fadeAnim]);
 
-  const handleShare = async () => {
-    const card = dna?.shareCard;
-    const title = card?.headline ?? dna?.dnaTitle ?? '커플 DNA';
-    const sub = card?.subheadline ?? '';
-    try {
-      await Share.share({
-        message: `${title}\n${sub}\n— Hear2 커플 DNA`,
-      });
-    } catch (err) {
-      Alert.alert('공유 실패', err?.message ?? '잠시 후 다시 시도해주세요.');
-    }
+  // 현재 화면을 그대로 캡처해 이미지로 공유(인스타그램 등) 또는 갤러리 저장
+  const handleShare = () => {
+    shareOrSaveScreenshot(shotRef);
   };
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} ref={shotRef} collapsable={false}>
       <LovelyBackground intensity={0.8} />
       <Header title="커플 DNA" showBack onBack={() => navigation?.goBack()} />
 

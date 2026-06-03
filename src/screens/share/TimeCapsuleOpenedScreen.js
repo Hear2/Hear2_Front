@@ -11,6 +11,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import colors from '../../constants/colors';
 import LovelyBackground from '../../components/common/LovelyBackground';
+import { shareOrSaveScreenshot } from '../../utils/screenShare';
 
 const CONFETTI = [
   { left: '12%', top: 40,   size: 16, color: '#FFD700', delay: 0,    glyph: '✨' },
@@ -136,6 +137,7 @@ const NowVsThen = () => {
 const TimeCapsuleOpenedScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const breathe = useRef(new Animated.Value(1)).current;
+  const shotRef = useRef(null); // 화면 캡처용 ref
 
   useEffect(() => {
     Animated.loop(
@@ -147,7 +149,7 @@ const TimeCapsuleOpenedScreen = ({ navigation }) => {
   }, []);
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} ref={shotRef} collapsable={false}>
       <LinearGradient
         colors={['#1E2152', '#3B3F8F', '#FF6B9D']}
         locations={[0, 0.6, 1]}
@@ -196,8 +198,12 @@ const TimeCapsuleOpenedScreen = ({ navigation }) => {
         <NowVsThen />
 
         <View style={styles.ctaRow}>
-          <TouchableOpacity style={styles.ctaSecondary} activeOpacity={0.85}>
-            <Text style={styles.ctaSecondaryText}>📥 추억함에 보관</Text>
+          <TouchableOpacity
+            style={styles.ctaSecondary}
+            activeOpacity={0.85}
+            onPress={() => shareOrSaveScreenshot(shotRef)}
+          >
+            <Text style={styles.ctaSecondaryText}>📤 스토리로 공유</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.ctaPrimary}
