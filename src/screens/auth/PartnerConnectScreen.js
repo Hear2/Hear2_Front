@@ -316,7 +316,7 @@ const PartnerConnectScreen = ({ navigation, route }) => {
 
           {/* My avatar */}
           <View style={styles.avatarMine}>
-            <Text style={styles.avatarText}>예</Text>
+            <Text style={styles.avatarText}>?</Text>
           </View>
 
           {/* Pulsing heart between */}
