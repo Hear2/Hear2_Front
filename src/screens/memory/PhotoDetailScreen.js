@@ -154,14 +154,16 @@ export default function PhotoDetailScreen({ navigation, route }) {
         aiTags: aiTagSlugs,
       };
     }
-    // 로컬 시드/임시 모델
+    // 로컬 시드/임시/가상 추억 모델
     return {
       title: passedMemory?.title || (passedMemory?.tag || '추억'),
       memo: passedMemory?.memo || '',
       photoUrl: passedMemory?.photoUri || null,
+      // 가상 추억(1년 전 오늘 등)은 로컬 assets 이미지를 require로 받아 표시.
+      localImage: passedMemory?.localImage || null,
       photos: [],
-      takenAt: null,
-      memoryDate: null,
+      takenAt: passedMemory?.takenAt || passedMemory?.memoryDate || null,
+      memoryDate: passedMemory?.memoryDate || null,
       place: passedMemory?.place || '',
       // 앨범에서 넘어온 카드의 분류 태그(photos[].aiTags 합집합)를 그대로 사용.
       tags:
@@ -192,9 +194,11 @@ export default function PhotoDetailScreen({ navigation, route }) {
   const heroPhotos =
     view.photos.length > 0
       ? view.photos
-      : view.photoUrl
-        ? [{ key: 'cover', url: view.photoUrl }]
-        : [];
+      : view.localImage
+        ? [{ key: 'local', localSource: view.localImage }]
+        : view.photoUrl
+          ? [{ key: 'cover', url: view.photoUrl }]
+          : [];
   // 사진 수가 바뀌면(상세 로드/폴링) 현재 페이지를 첫 장으로 리셋.
   useEffect(() => {
     setHeroIndex(0);
@@ -336,7 +340,7 @@ export default function PhotoDetailScreen({ navigation, route }) {
               {heroPhotos.map((p) => (
                 <Image
                   key={p.key}
-                  source={buildPhotoSource(p.url, accessToken)}
+                  source={p.localSource ? p.localSource : buildPhotoSource(p.url, accessToken)}
                   style={styles.heroSlide}
                 />
               ))}

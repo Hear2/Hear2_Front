@@ -24,6 +24,21 @@ const quickActions = [
   { emoji: '🤔', label: '만약에 AI',  bg: colors.pinkTint,     route: 'WhatIfScreen' },
 ];
 
+// '1년 전 오늘' 카드용 하드코딩 가상 추억 (작년 오늘 = 2025-06-04).
+// 로컬 assets 이미지로 표시되며 BE 조회 없이 PhotoDetail에 그대로 띄운다.
+const YEAR_AGO_MEMORY = {
+  virtual: true,
+  localImage: require('../../../assets/year_ago_2025.png'),
+  title: '서울숲에서 봄나들이',
+  place: '서울숲',
+  date: '6.4',
+  tag: '#데이트',
+  tags: ['데이트', '봄', '나들이', '커플'],
+  memo: '1년 전 오늘, 서울숲에서 함께 봄나들이 했던 날 🌸',
+  memoryDate: '2025-06-04',
+  emoji: '🌸',
+};
+
 const HomeScreen = ({ navigation }) => {
   const emojiScale = useRef(new Animated.Value(1)).current;
 
@@ -175,20 +190,27 @@ const HomeScreen = ({ navigation }) => {
           </View>
         ))}
 
-        {/* 1년 전 오늘 Banner */}
-        <LinearGradient
-          colors={[colors.pink, colors.pinkSoft]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.banner}
+        {/* 1년 전 오늘 Banner — 터치 시 작년 오늘의 가상 추억으로 이동 */}
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() =>
+            navigation.navigate('PhotoDetail', { memory: YEAR_AGO_MEMORY })
+          }
         >
-          <Text style={styles.bannerEmoji}>🌸</Text>
-          <View style={styles.bannerTextWrap}>
-            <Text style={styles.bannerTitle}>1년 전 오늘</Text>
-            <Text style={styles.bannerSubtitle}>서울숲에서 봄나들이</Text>
-          </View>
-          <Text style={styles.bannerArrow}>›</Text>
-        </LinearGradient>
+          <LinearGradient
+            colors={[colors.pink, colors.pinkSoft]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.banner}
+          >
+            <Text style={styles.bannerEmoji}>🌸</Text>
+            <View style={styles.bannerTextWrap}>
+              <Text style={styles.bannerTitle}>1년 전 오늘</Text>
+              <Text style={styles.bannerSubtitle}>서울숲에서 봄나들이</Text>
+            </View>
+            <Text style={styles.bannerArrow}>›</Text>
+          </LinearGradient>
+        </TouchableOpacity>
 
         {/* 최근 추억 Section */}
         <View style={styles.sectionHeader}>
