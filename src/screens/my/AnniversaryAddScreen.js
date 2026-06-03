@@ -64,20 +64,34 @@ const computeDDay = (y, m, d) => {
   return 'D-DAY';
 };
 
-export default function AnniversaryAddScreen({ navigation }) {
-  const { addAnniversary } = useCouple();
+export default function AnniversaryAddScreen({ navigation, route }) {
+  // 커플 연결 직후 진입하는 "사귄 날 입력" 온보딩 모드. 기본 프리셋이 사귄 날(0)이라 그대로 띄운다.
+  const onboarding = !!route?.params?.onboarding;
+  // 기존 기념일(사귄날 포함) 수정 모드. editing 객체를 받아 필드를 채워준다.
+  const editing = route?.params?.editing || null;
+  const { addAnniversary, removeAnniversary } = useCouple();
   const today = new Date();
-  const [presetIdx, setPresetIdx] = useState(0); // 사귄 날
-  const [name, setName] = useState('사귄 날');
-  const [iconIdx, setIconIdx] = useState(0); // 💕
-  const [colorIdx, setColorIdx] = useState(0); // #FC2648
+  const initPreset = editing
+    ? Math.max(0, PRESETS.findIndex((p) => p.label === editing.type))
+    : 0;
+  const initDate = editing?.date ? editing.date.split('-').map(Number) : null;
+  const [presetIdx, setPresetIdx] = useState(initPreset);
+  const [name, setName] = useState(editing?.name ?? '사귄 날');
+  const [iconIdx, setIconIdx] = useState(() => {
+    const i = editing?.icon ? ICONS.indexOf(editing.icon) : 0;
+    return i >= 0 ? i : 0;
+  });
+  const [colorIdx, setColorIdx] = useState(() => {
+    const i = editing?.color ? COLOR_SWATCHES.indexOf(editing.color) : 0;
+    return i >= 0 ? i : 0;
+  });
   const [repeatYearly, setRepeatYearly] = useState(true);
   const [shareWithPartner, setShareWithPartner] = useState(true);
   const [reminders, setReminders] = useState({ '7d': true, '3d': false, '1d': true, '0d': true });
 
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth() + 1);
-  const [day, setDay] = useState(today.getDate());
+  const [year, setYear] = useState(initDate ? initDate[0] : today.getFullYear());
+  const [month, setMonth] = useState(initDate ? initDate[1] : today.getMonth() + 1);
+  const [day, setDay] = useState(initDate ? initDate[2] : today.getDate());
 
   const validDay = useMemo(
     () => Math.min(day, daysInMonth(year, month)),
@@ -107,6 +121,8 @@ export default function AnniversaryAddScreen({ navigation }) {
   const onSave = () => {
     const pad = (n) => String(n).padStart(2, '0');
     const isoDate = `${year}-${pad(month)}-${pad(validDay)}`;
+    // 수정 모드면 기존 항목(+사귄날이면 자동 파생 기념일)을 먼저 제거하고 새로 추가한다.
+    if (editing?.id) removeAnniversary(editing.id);
     addAnniversary({
       type: PRESETS[presetIdx].label,
       name: name.trim() || PRESETS[presetIdx].label,
@@ -133,7 +149,13 @@ export default function AnniversaryAddScreen({ navigation }) {
         <TouchableOpacity hitSlop={12} onPress={() => navigation?.goBack()}>
           <Text style={styles.headerClose}>✕</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>기념일 추가</Text>
+        <Text style={styles.headerTitle}>
+          {onboarding
+            ? '사귄 날을 알려주세요'
+            : editing
+              ? '기념일 수정'
+              : '기념일 추가'}
+        </Text>
         <View style={{ width: 22 }} />
       </View>
 
@@ -406,7 +428,9 @@ export default function AnniversaryAddScreen({ navigation }) {
             style={styles.saveBtn}
           >
             <Heart size={14} color="#FFFFFF" />
-            <Text style={styles.saveText}>기념일 저장</Text>
+            <Text style={styles.saveText}>
+              {onboarding ? '시작하기' : editing ? '수정 완료' : '기념일 저장'}
+            </Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>

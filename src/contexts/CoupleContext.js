@@ -78,10 +78,25 @@ const expandSeed = (list) => {
   return out;
 };
 
+// 애칭: "부르는 사람(giver) 이름" 기준으로 저장 (보는 사람과 무관하게 같은 값).
+//  - nicknames['예진'] = 예진이 파트너(지호)를 부르는 애칭
+//  - nicknames['지호'] = 지호가 파트너(예진)를 부르는 애칭
+const SEED_NICKNAMES = {
+  예진: '자기야',
+  지호: '우리 예지니',
+};
+
 export const CoupleProvider = ({ children }) => {
   const [anniversaries, setAnniversaries] = useState(() =>
     expandSeed(SEED_ANNIVERSARIES),
   );
+  const [nicknames, setNicknames] = useState(SEED_NICKNAMES);
+
+  // giver(부르는 사람)의 애칭만 바꾼다. 편집 권한(서로 상대 것만)은 화면에서 강제.
+  const setNickname = useCallback((giver, value) => {
+    if (!giver) return;
+    setNicknames((prev) => ({ ...prev, [giver]: value }));
+  }, []);
 
   const addAnniversary = useCallback((entry) => {
     const id = entry.id || nextId();
@@ -115,8 +130,14 @@ export const CoupleProvider = ({ children }) => {
   }, []);
 
   const value = useMemo(
-    () => ({ anniversaries, addAnniversary, removeAnniversary }),
-    [anniversaries, addAnniversary, removeAnniversary],
+    () => ({
+      anniversaries,
+      addAnniversary,
+      removeAnniversary,
+      nicknames,
+      setNickname,
+    }),
+    [anniversaries, addAnniversary, removeAnniversary, nicknames, setNickname],
   );
 
   return <CoupleContext.Provider value={value}>{children}</CoupleContext.Provider>;

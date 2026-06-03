@@ -58,7 +58,11 @@ const MoreScreen = ({ navigation }) => {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* Profile Hero Card */}
+        {/* Profile Hero Card — 누르면 프로필 편집으로 이동 */}
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => navigation.navigate('ProfileEditScreen')}
+        >
         <LinearGradient
           colors={[colors.pink, colors.peach]}
           start={{ x: 0, y: 0 }}
@@ -92,6 +96,7 @@ const MoreScreen = ({ navigation }) => {
             ))}
           </View>
         </LinearGradient>
+        </TouchableOpacity>
 
         {/* Premium Banner */}
         <LinearGradient

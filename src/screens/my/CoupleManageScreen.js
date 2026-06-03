@@ -1,26 +1,37 @@
-import React, { useMemo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Modal,
+  TextInput,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Defs, RadialGradient, Stop, Circle } from 'react-native-svg';
 import colors from '../../constants/colors';
 import SettingsShell from './SettingsShell';
 import Heart from '../../components/common/Heart';
 import { useCouple } from '../../contexts/CoupleContext';
+import { useAuth } from '../../contexts/AuthContext';
 
-const NICKNAMES = [
-  {
-    label: '예진이 부르는 지호',
-    value: '자기야',
-    color: colors.pinkDeep,
-    bg: '#FFF5F8',
-  },
-  {
-    label: '지호가 부르는 예진',
-    value: '우리 예지니',
-    color: colors.blue,
-    bg: '#F5F8FF',
-  },
-];
+// 화면 더미 기준 커플 두 사람. me는 로그인 닉네임으로 판별(없으면 지호로 폴백).
+const COUPLE = ['예진', '지호'];
+const NICK_THEME = {
+  예진: { color: colors.pinkDeep, bg: '#FFF5F8' },
+  지호: { color: colors.blue, bg: '#F5F8FF' },
+};
+// 한국어 주격 조사 이/가 (받침 있으면 '이').
+const subjParticle = (name) => {
+  if (!name) return '가';
+  const code = name.charCodeAt(name.length - 1);
+  if (code < 0xac00 || code > 0xd7a3) return '가';
+  return (code - 0xac00) % 28 !== 0 ? '이' : '가';
+};
+const NICK_MAX = 20;
 
 const withAlpha = (hex, alpha) => {
   const n = hex.replace('#', '');
@@ -47,8 +58,51 @@ const sortByDate = (list) =>
   [...list].sort((a, b) => new Date(a.date) - new Date(b.date));
 
 const CoupleManageScreen = ({ navigation }) => {
-  const { anniversaries } = useCouple();
+  const { anniversaries, nicknames, setNickname } = useCouple();
+  const { user } = useAuth();
   const sorted = useMemo(() => sortByDate(anniversaries), [anniversaries]);
+
+  // 나(부르는 주체) 판별 — 로그인 닉네임이 커플 멤버면 그걸로, 아니면 지호로 폴백.
+  const me = COUPLE.includes(user?.nickname) ? user.nickname : '지호';
+
+  // 애칭 카드: giver(부르는 사람)별로. 편집은 giver === me 인 카드(=내가 상대를 부르는 애칭)만 가능.
+  const nickCards = useMemo(
+    () =>
+      COUPLE.map((giver) => {
+        const target = COUPLE.find((n) => n !== giver);
+        const theme = NICK_THEME[giver] || { color: colors.pinkDeep, bg: '#FFF5F8' };
+        return {
+          giver,
+          target,
+          label: `${giver}${subjParticle(giver)} 부르는 ${target}`,
+          value: nicknames?.[giver] ?? '',
+          editable: giver === me,
+          ...theme,
+        };
+      }),
+    [nicknames, me],
+  );
+
+  // 애칭 편집 모달
+  const [editGiver, setEditGiver] = useState(null);
+  const [draftNick, setDraftNick] = useState('');
+  const openNickEdit = (card) => {
+    if (!card.editable) return;
+    setEditGiver(card.giver);
+    setDraftNick(card.value);
+  };
+  const closeNickEdit = () => setEditGiver(null);
+  const saveNickEdit = () => {
+    if (editGiver) setNickname(editGiver, draftNick.trim());
+    setEditGiver(null);
+  };
+
+  // 자동 파생(100일 등)이 아닌 기념일만 탭해서 수정.
+  const onEditAnniversary = (a) => {
+    if (a.auto) return;
+    navigation?.navigate('AnniversaryAddScreen', { editing: a });
+  };
+
   return (
   <SettingsShell navigation={navigation} title="커플 관리">
     {/* hero */}
@@ -88,21 +142,34 @@ const CoupleManageScreen = ({ navigation }) => {
       </View>
     </LinearGradient>
 
-    {/* nicknames */}
-    <Text style={styles.sectionLabel}>우리만의 호칭</Text>
+    {/* nicknames (애칭) */}
+    <Text style={styles.sectionLabel}>우리만의 애칭</Text>
     <View style={styles.nickCard}>
-      {NICKNAMES.map((n) => (
-        <View
-          key={n.label}
-          style={[styles.nickCell, { backgroundColor: n.bg }]}
+      {nickCards.map((n) => (
+        <Pressable
+          key={n.giver}
+          onPress={() => openNickEdit(n)}
+          disabled={!n.editable}
+          style={({ pressed }) => [
+            styles.nickCell,
+            { backgroundColor: n.bg },
+            n.editable && styles.nickCellEditable,
+            pressed && n.editable && { opacity: 0.85 },
+          ]}
         >
-          <Text style={styles.nickLabel}>{n.label}</Text>
+          <View style={styles.nickHeaderRow}>
+            <Text style={styles.nickLabel}>{n.label}</Text>
+            <Text style={styles.nickAffordance}>{n.editable ? '✏️' : '🔒'}</Text>
+          </View>
           <Text style={[styles.nickValue, { color: n.color }]}>
-            "{n.value}"
+            "{n.value || '애칭 없음'}"
           </Text>
-        </View>
+        </Pressable>
       ))}
     </View>
+    <Text style={styles.nickHint}>
+      애칭은 상대를 부르는 것만 내가 정할 수 있어요. 내 애칭은 상대가 정해줘요 🔒
+    </Text>
 
     {/* anniversaries */}
     <View style={styles.annHeader}>
@@ -117,8 +184,11 @@ const CoupleManageScreen = ({ navigation }) => {
     </View>
     <View style={styles.card}>
       {sorted.map((a, i, arr) => (
-        <View
+        <TouchableOpacity
           key={a.id}
+          activeOpacity={a.auto ? 1 : 0.6}
+          onPress={() => onEditAnniversary(a)}
+          disabled={a.auto}
           style={[styles.annRow, i < arr.length - 1 && styles.divider]}
         >
           <View
@@ -139,7 +209,8 @@ const CoupleManageScreen = ({ navigation }) => {
           <Text style={[styles.annDDay, { color: a.color }]}>
             {ddayLabel(a.date)}
           </Text>
-        </View>
+          {!a.auto && <Text style={styles.annChevron}>›</Text>}
+        </TouchableOpacity>
       ))}
     </View>
 
@@ -150,6 +221,53 @@ const CoupleManageScreen = ({ navigation }) => {
         <Text style={styles.noticeAccent}>설정 &gt; 계정</Text> 에서
       </Text>
     </View>
+
+    {/* 애칭 편집 모달 */}
+    <Modal
+      visible={!!editGiver}
+      transparent
+      animationType="fade"
+      onRequestClose={closeNickEdit}
+    >
+      <Pressable style={styles.modalBackdrop} onPress={closeNickEdit}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalCenter}
+        >
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Text style={styles.modalTitle}>
+              {editGiver ? `${COUPLE.find((n) => n !== editGiver)} 애칭` : '애칭'}
+            </Text>
+            <Text style={styles.modalSub}>상대를 부르는 애칭을 정해주세요</Text>
+            <TextInput
+              value={draftNick}
+              onChangeText={(t) => setDraftNick(t.slice(0, NICK_MAX))}
+              placeholder="예: 자기야"
+              placeholderTextColor="#BBB"
+              style={styles.modalInput}
+              maxLength={NICK_MAX}
+              autoFocus
+            />
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalCancel]}
+                onPress={closeNickEdit}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.modalCancelText}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalSave]}
+                onPress={saveNickEdit}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.modalSaveText}>저장</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Pressable>
+    </Modal>
   </SettingsShell>
   );
 };
@@ -233,8 +351,68 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 10,
   },
-  nickLabel: { fontSize: 9, color: '#888', fontWeight: '700' },
+  nickCellEditable: {
+    borderWidth: 1.5,
+    borderColor: colors.heartRed,
+  },
+  nickHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  nickAffordance: { fontSize: 10 },
+  nickLabel: { fontSize: 9, color: '#888', fontWeight: '700', flex: 1 },
   nickValue: { marginTop: 4, fontSize: 14, fontWeight: '800' },
+  nickHint: {
+    marginTop: 8,
+    paddingHorizontal: 4,
+    fontSize: 10,
+    color: '#999',
+    lineHeight: 15,
+  },
+  annChevron: { fontSize: 18, color: '#CCC', marginLeft: 2 },
+
+  // 애칭 편집 모달
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  modalCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 20,
+  },
+  modalTitle: { fontSize: 16, fontWeight: '800', color: colors.ink },
+  modalSub: { marginTop: 4, fontSize: 12, color: '#888' },
+  modalInput: {
+    marginTop: 14,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: colors.pinkSoft ?? '#FFD0E0',
+    paddingHorizontal: 14,
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.ink,
+    backgroundColor: '#FFF8FB',
+  },
+  modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  modalBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCancel: { backgroundColor: '#F5F5F5' },
+  modalCancelText: { fontSize: 14, fontWeight: '700', color: '#555' },
+  modalSave: { backgroundColor: colors.heartRed },
+  modalSaveText: { fontSize: 14, fontWeight: '800', color: '#FFFFFF' },
 
   card: {
     marginTop: 8,

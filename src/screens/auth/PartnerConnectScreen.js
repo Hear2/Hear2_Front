@@ -107,6 +107,18 @@ const PartnerConnectScreen = ({ navigation, route }) => {
   }, [signOut, navigation]);
   const pollRef = useRef(null);
 
+  // 커플 연결 직후엔 바로 "사귄 날" 입력 화면(기념일 추가, 사귄날 프리셋)을 띄운다.
+  // MainTabs(홈)를 베이스로 깔고 그 위에 모달로 올려서, 입력/취소하면 홈으로 돌아오게 한다.
+  const goToCoupleStart = useCallback(() => {
+    navigation.getParent()?.reset({
+      index: 1,
+      routes: [
+        { name: 'MainTabs' },
+        { name: 'AnniversaryAddScreen', params: { onboarding: true } },
+      ],
+    });
+  }, [navigation]);
+
   // 화면 진입 시: 연결 상태만 확인. 자동 코드 발급은 하지 않는다.
   // - connected → 메인 탭으로
   // - 이미 발급해둔 본인 코드가 있으면 → 발급 모드로 복원
@@ -149,9 +161,7 @@ const PartnerConnectScreen = ({ navigation, route }) => {
       if (status?.connected) {
         clearInterval(pollRef.current);
         pollRef.current = null;
-        navigation
-          .getParent()
-          ?.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+        goToCoupleStart();
       }
     }, STATUS_POLL_INTERVAL_MS);
     return () => {
@@ -160,7 +170,7 @@ const PartnerConnectScreen = ({ navigation, route }) => {
         pollRef.current = null;
       }
     };
-  }, [myCode, refreshCoupleStatus, navigation]);
+  }, [myCode, refreshCoupleStatus, navigation, goToCoupleStart]);
 
   // 회원가입 마지막 단계에선 back 허용. 로그인 후 미연결 진입(잠금 모드)에선 차단.
   useEffect(() => {
@@ -240,10 +250,8 @@ const PartnerConnectScreen = ({ navigation, route }) => {
         setError(res?.message || '연결에 실패했어요. 코드를 확인해주세요.');
         return;
       }
-      // 성공 — 루트로 reset해서 Auth 스택 전체 제거 + MainTabs로 진입
-      navigation
-        .getParent()
-        ?.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+      // 성공 — Auth 스택 제거하고, 홈 위에 "사귄 날 입력" 화면을 띄운다.
+      goToCoupleStart();
     } catch (err) {
       setError(err?.message || '연결 중 오류가 발생했어요.');
     } finally {
