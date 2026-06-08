@@ -1,0 +1,90 @@
+{
+  "expo": {
+    "name": "Hear2",
+    "slug": "hear2-app",
+    "scheme": "hear2",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./src/assets/icons/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#FFF5F8"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FFF5F8"
+      },
+      "package": "com.hear2.app",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.ACCESS_MEDIA_LOCATION",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "com.ukhee.hear2",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.578275339228-a453k1htjcetua7f8cl208f81tr5h9qt"
+            ]
+          }
+        ]
+      }
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Hear2가 연인과 위치를 공유하기 위해 위치 정보를 사용합니다."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Hear2가 추억 앨범에 사진을 추가하기 위해 사진 접근이 필요합니다.",
+          "cameraPermission": "Hear2가 추억을 바로 촬영하기 위해 카메라 접근이 필요합니다."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Hear2가 추억 앨범에 표시할 갤러리 사진을 읽기 위해 권한이 필요합니다.",
+          "savePhotosPermission": "Hear2가 추억 사진을 갤러리에 저장하기 위해 권한이 필요합니다.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./src/assets/icons/icon.png",
+          "color": "#FF6B9D"
+        }
+      ],
+      "expo-secure-store",
+      "expo-web-browser"
+    ],
+    "extra": {
+      "kakaoJsKey": "049cf3a09c10f8e430ed1acbc40fc588",
+      "apiBaseUrl": "https://hear2-be.onrender.com",
+      "aiBaseUrl": "https://hear2-be.onrender.com",
+      "wsBaseUrl": "wss://hear2-be.onrender.com",
+      "mockApi": false,
+      "eas": {
+        "projectId": "01a3255c-87da-4ac5-859f-d2e6f8b21595"
+      }
+    },
+    "owner": "ukhee_dokey"
+  }
+}

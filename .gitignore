@@ -255,3 +255,7 @@ buck-out/
 .fakebuckversion
 
 # End of https://www.toptal.com/developers/gitignore/api/reactnative
+
+# Expo CNG: 네이티브 프로젝트는 `expo prebuild`로 생성되는 산출물이므로 추적하지 않음
+/android
+/ios
